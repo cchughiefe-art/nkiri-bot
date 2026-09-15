@@ -11,6 +11,10 @@ function cleanTitle(input) {
       ""
     )
     .replace(
+      /\s*\|\s*(TV Series|Korean Drama|Chinese Drama|Japanese Drama|Hollywood Movie|Nollywood Movie|Bollywood Movie).*$/i,
+      ""
+    )
+    .replace(
       /\s*-\s*TheNkiri\s*\.?com.*$/i,
       ""
     )
@@ -38,15 +42,41 @@ function detectType(input) {
     String(input || "")
       .toLowerCase();
 
+  /*
+   * Series/drama indicators first.
+   */
   if (
-    /\bs\d{1,2}\b/.test(text) ||
+    /\bs\d{1,2}\b/i.test(text) ||
+    /\bseason\s*\d+/i.test(text) ||
     text.includes("tv series") ||
-    text.includes("series")
+    text.includes("korean drama") ||
+    text.includes("chinese drama") ||
+    text.includes("japanese drama") ||
+    text.includes("indian series") ||
+    text.includes("episode ") ||
+    text.includes("complete series")
   ) {
     return "series";
   }
 
-  return "movie";
+  /*
+   * Common TheNkiri movie indicators.
+   */
+  if (
+    text.includes("movie") ||
+    text.includes("hollywood") ||
+    text.includes("nollywood") ||
+    text.includes("bollywood") ||
+    text.includes("spanish movie") ||
+    text.includes("korean movie") ||
+    text.includes("chinese movie") ||
+    text.includes("japanese movie") ||
+    /\b(19|20)\d{2}\b/.test(text)
+  ) {
+    return "movie";
+  }
+
+  return "unknown";
 }
 
 function extractQuality(input) {

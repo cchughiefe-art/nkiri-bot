@@ -328,14 +328,19 @@ async function getLatest(
   let filtered =
     results;
 
-  if (
-    type === "movie" ||
-    type === "series"
-  ) {
+  if (type === "series") {
     filtered =
       results.filter(
         item =>
-          item.type === type
+          item.type === "series"
+      );
+  }
+
+  if (type === "movie") {
+    filtered =
+      results.filter(
+        item =>
+          item.type !== "series"
       );
   }
 
