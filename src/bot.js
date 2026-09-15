@@ -9,6 +9,9 @@ const { searchNkiri } =
 const { parseNkiriPage } =
   require("./nkiri/parser");
 
+const { parseSeriesPage } =
+  require("./nkiri/series");
+
 const { resolveDownloadWella } =
   require("./resolvers/downloadwella");
 
@@ -192,15 +195,101 @@ bot.on(
         );
 
       try {
+        /*
+         * Check whether this page contains
+         * multiple episode downloads.
+         */
+        const series =
+          await parseSeriesPage(
+            item.url
+          );
+
+        if (
+          series.isSeries &&
+          series.episodes.length > 1
+        ) {
+          const buttons = [];
+
+          for (
+            const episode
+            of series.episodes
+          ) {
+            const episodeId =
+              makeId();
+
+            searches.set(
+              episodeId,
+              {
+                directPageUrl:
+                  episode.downloadUrl,
+
+                title:
+                  `${series.title} - ${episode.label}`,
+
+                created:
+                  Date.now()
+              }
+            );
+
+            buttons.push([
+              {
+                text:
+                  `▶️ ${episode.label}`,
+
+                callback_data:
+                  `episode:${episodeId}`
+              }
+            ]);
+          }
+
+          await bot.deleteMessage(
+            chatId,
+            status.message_id
+          ).catch(() => {});
+
+          const seriesCaption =
+            `📺 ${series.title}\n\n` +
+            `${series.episodes.length} episodes found.\n` +
+            `Choose an episode:`;
+
+          if (series.poster) {
+            await bot.sendPhoto(
+              chatId,
+              series.poster,
+              {
+                caption:
+                  seriesCaption,
+
+                reply_markup: {
+                  inline_keyboard:
+                    buttons
+                }
+              }
+            );
+          } else {
+            await bot.sendMessage(
+              chatId,
+              seriesCaption,
+              {
+                reply_markup: {
+                  inline_keyboard:
+                    buttons
+                }
+              }
+            );
+          }
+
+          return;
+        }
+
+        /*
+         * Normal movie flow.
+         */
         const movie =
           await parseNkiriPage(
             item.url
           );
 
-        /*
-         * Keep the selected page for
-         * the download button.
-         */
         const downloadId =
           makeId();
 
@@ -284,6 +373,117 @@ bot.on(
      * Generate the temporary direct
      * browser download URL.
      */
+    /*
+     * User selected an episode.
+     * The episode already has its own
+     * DownloadWella page URL.
+     */
+    if (data.startsWith("episode:")) {
+
+      const id =
+        data.slice(8);
+
+      const item =
+        searches.get(id);
+
+      if (!item) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "This episode selection expired. Search again."
+          }
+        );
+
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id,
+        {
+          text:
+            "Generating episode download..."
+        }
+      );
+
+      const status =
+        await bot.sendMessage(
+          chatId,
+          "Generating a fresh episode download link..."
+        );
+
+      try {
+        console.log(
+          "Resolving episode:",
+          item.directPageUrl
+        );
+
+        const resolved =
+          await resolveDownloadWella(
+            item.directPageUrl
+          );
+
+        console.log(
+          "Fresh episode URL generated."
+        );
+
+        await bot.editMessageText(
+          `📺 ${item.title}\n\n` +
+          `Your episode is ready.\n` +
+          `The link may expire, so start the download now.`,
+          {
+            chat_id:
+              chatId,
+
+            message_id:
+              status.message_id,
+
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text:
+                      "⬇️ Download Episode",
+
+                    url:
+                      resolved.directUrl
+                  }
+                ]
+              ]
+            }
+          }
+        );
+
+      } catch (error) {
+        console.error(
+          "EPISODE DOWNLOAD ERROR:",
+          error
+        );
+
+        const unavailable =
+          error.message &&
+          error.message.includes(
+            "HTTP 404"
+          );
+
+        await bot.editMessageText(
+          unavailable
+            ? "❌ This episode is currently unavailable on the download server."
+            : "⚠️ I couldn't generate this episode's download link. Please try again.",
+          {
+            chat_id:
+              chatId,
+
+            message_id:
+              status.message_id
+          }
+        );
+      }
+
+      return;
+    }
+
+
     if (data.startsWith("download:")) {
 
       const id =
@@ -380,7 +580,7 @@ bot.on(
         );
 
         await bot.editMessageText(
-          "I couldn't generate the download link. Please try again.",
+          "This movie or episode could not be downloaded. Its download-server link may be unavailable or expired.",
           {
             chat_id: chatId,
             message_id:
