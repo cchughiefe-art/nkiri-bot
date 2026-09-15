@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+EOFcat > .gitignore <<'EOF'
+node_modules/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
