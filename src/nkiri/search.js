@@ -1,6 +1,19 @@
 const cheerio = require("cheerio");
 const { fetch, Agent } = require("undici");
 
+const {
+  rankResults,
+  cleanTitle,
+  extractYear,
+  detectType
+} = require("../core/media");
+
+const {
+  getCache,
+  setCache,
+  incrementStat
+} = require("../core/store");
+
 const dispatcher = new Agent({
   connect: { timeout: 30000 },
   headersTimeout: 60000,
@@ -10,144 +23,361 @@ const dispatcher = new Agent({
 const HEADERS = {
   "user-agent":
     "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/140 Safari/537.36",
-  "accept":
+  accept:
     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "accept-language": "en-US,en;q=0.9"
 };
 
-function clean(text) {
-  return String(text || "")
+const CACHE_TTL =
+  30 * 60 * 1000;
+
+function clean(value) {
+  return String(value || "")
     .replace(/\s+/g, " ")
     .trim();
 }
 
-async function searchNkiri(query) {
-  const searchUrl =
-    `https://thenkiri.com/?s=${encodeURIComponent(query)}`;
+async function request(url) {
+  let lastError;
 
-  console.log("Searching TheNkiri:", query);
+  for (
+    let attempt = 1;
+    attempt <= 3;
+    attempt++
+  ) {
+    try {
+      const response =
+        await fetch(url, {
+          dispatcher,
+          headers: HEADERS,
+          redirect: "follow"
+        });
 
-  const response = await fetch(searchUrl, {
-    dispatcher,
-    headers: HEADERS,
-    redirect: "follow"
-  });
+      if (!response.ok) {
+        throw new Error(
+          `TheNkiri returned HTTP ${response.status}`
+        );
+      }
 
-  if (!response.ok) {
-    throw new Error(
-      `TheNkiri search returned HTTP ${response.status}`
-    );
+      return response;
+
+    } catch (error) {
+      lastError = error;
+
+      if (attempt < 3) {
+        await new Promise(
+          resolve =>
+            setTimeout(
+              resolve,
+              attempt * 1500
+            )
+        );
+      }
+    }
   }
 
-  const html = await response.text();
+  throw lastError;
+}
+
+function parsePosts(
+  html,
+  baseUrl
+) {
   const $ = cheerio.load(html);
 
   const results = [];
   const seen = new Set();
 
-  /*
-   * WordPress themes vary, so inspect several
-   * common result containers.
-   */
-  $("article, .post, .type-post").each((_, element) => {
+  $(
+    "article, .post, .type-post"
+  ).each((_, element) => {
     const item = $(element);
 
-    const link =
-      item.find("h2 a").first().attr("href") ||
-      item.find("h3 a").first().attr("href") ||
-      item.find(".entry-title a").first().attr("href") ||
-      item.find("a").first().attr("href");
+    const anchor =
+      item.find(
+        ".entry-title a, h1 a, h2 a, h3 a"
+      ).first();
 
-    if (!link) return;
+    let href =
+      anchor.attr("href");
+
+    let title =
+      clean(anchor.text());
+
+    if (!href) {
+      const fallback =
+        item.find("a").first();
+
+      href =
+        fallback.attr("href");
+
+      title =
+        title ||
+        clean(fallback.text());
+    }
+
+    if (!href || !title) {
+      return;
+    }
 
     let url;
 
     try {
-      url = new URL(link, response.url).href;
+      url =
+        new URL(
+          href,
+          baseUrl
+        ).href;
     } catch {
       return;
     }
 
     if (
-      !url.startsWith("https://thenkiri.com/") ||
+      !url.startsWith(
+        "https://thenkiri.com/"
+      ) ||
       seen.has(url)
     ) {
       return;
     }
 
-    const title = clean(
-      item.find("h2").first().text() ||
-      item.find("h3").first().text() ||
-      item.find(".entry-title").first().text()
-    );
-
-    if (!title) return;
-
     const image =
-      item.find("img").first().attr("data-src") ||
-      item.find("img").first().attr("src") ||
+      item.find("img")
+        .first()
+        .attr("data-src") ||
+      item.find("img")
+        .first()
+        .attr("data-lazy-src") ||
+      item.find("img")
+        .first()
+        .attr("src") ||
       null;
 
     seen.add(url);
 
     results.push({
       title,
+      cleanTitle:
+        cleanTitle(title),
+      year:
+        extractYear(title),
+      type:
+        detectType(title),
       url,
       image
     });
   });
 
-  /*
-   * Fallback for themes where posts aren't
-   * wrapped in normal <article> elements.
-   */
-  if (!results.length) {
-    $("a").each((_, element) => {
-      if (results.length >= 10) return false;
+  return results;
+}
 
-      const anchor = $(element);
-      const href = anchor.attr("href");
-      const title = clean(anchor.text());
+async function searchNkiri(
+  query,
+  options = {}
+) {
+  const page =
+    Math.max(
+      1,
+      Number(options.page) || 1
+    );
 
-      if (!href || !title) return;
+  const perPage =
+    Math.max(
+      1,
+      Math.min(
+        8,
+        Number(options.perPage) || 6
+      )
+    );
 
-      let url;
+  const normalized =
+    String(query)
+      .trim()
+      .toLowerCase();
 
-      try {
-        url = new URL(href, response.url).href;
-      } catch {
-        return;
-      }
+  const cacheKey =
+    `search:${normalized}`;
 
-      if (
-        !url.startsWith("https://thenkiri.com/") ||
-        seen.has(url)
-      ) {
-        return;
-      }
+  let results =
+    getCache(cacheKey);
 
-      const lower = title.toLowerCase();
+  if (!results) {
+    console.log(
+      "Searching TheNkiri:",
+      query
+    );
 
-      if (
-        !lower.includes(query.toLowerCase()) &&
-        !lower.includes("download")
-      ) {
-        return;
-      }
+    const response =
+      await request(
+        `https://thenkiri.com/?s=${encodeURIComponent(query)}`
+      );
 
-      seen.add(url);
+    const html =
+      await response.text();
 
-      results.push({
-        title,
-        url,
-        image: null
-      });
-    });
+    results =
+      parsePosts(
+        html,
+        response.url
+      );
+
+    results =
+      rankResults(
+        query,
+        results
+      );
+
+    setCache(
+      cacheKey,
+      results,
+      CACHE_TTL
+    );
   }
 
-  return results.slice(0, 8);
+  incrementStat("searches");
+
+  const total =
+    results.length;
+
+  const pages =
+    Math.max(
+      1,
+      Math.ceil(
+        total / perPage
+      )
+    );
+
+  const safePage =
+    Math.min(
+      page,
+      pages
+    );
+
+  const start =
+    (safePage - 1) *
+    perPage;
+
+  return {
+    query,
+    results:
+      results.slice(
+        start,
+        start + perPage
+      ),
+    total,
+    page: safePage,
+    pages,
+    hasPrevious:
+      safePage > 1,
+    hasNext:
+      safePage < pages
+  };
+}
+
+async function getLatest(
+  type = "all",
+  options = {}
+) {
+  const page =
+    Math.max(
+      1,
+      Number(options.page) || 1
+    );
+
+  const perPage =
+    Math.max(
+      1,
+      Math.min(
+        8,
+        Number(options.perPage) || 6
+      )
+    );
+
+  const cacheKey =
+    "latest:homepage";
+
+  let results =
+    getCache(cacheKey);
+
+  if (!results) {
+    console.log(
+      "Loading latest TheNkiri posts..."
+    );
+
+    const response =
+      await request(
+        "https://thenkiri.com/"
+      );
+
+    const html =
+      await response.text();
+
+    results =
+      parsePosts(
+        html,
+        response.url
+      );
+
+    setCache(
+      cacheKey,
+      results,
+      10 * 60 * 1000
+    );
+  }
+
+  let filtered =
+    results;
+
+  if (
+    type === "movie" ||
+    type === "series"
+  ) {
+    filtered =
+      results.filter(
+        item =>
+          item.type === type
+      );
+  }
+
+  const total =
+    filtered.length;
+
+  const pages =
+    Math.max(
+      1,
+      Math.ceil(
+        total / perPage
+      )
+    );
+
+  const safePage =
+    Math.min(
+      page,
+      pages
+    );
+
+  const start =
+    (safePage - 1) *
+    perPage;
+
+  return {
+    type,
+    results:
+      filtered.slice(
+        start,
+        start + perPage
+      ),
+    total,
+    page: safePage,
+    pages,
+    hasPrevious:
+      safePage > 1,
+    hasNext:
+      safePage < pages
+  };
 }
 
 module.exports = {
-  searchNkiri
+  searchNkiri,
+  getLatest
 };
