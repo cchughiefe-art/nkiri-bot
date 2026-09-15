@@ -79,6 +79,50 @@ const bot =
     { polling: true }
   );
 
+/*
+ * Telegram callback queries expire quickly.
+ * After a restart, Telegram may deliver an old
+ * button press. Do not let that crash the bot.
+ */
+const originalAnswerCallbackQuery =
+  bot.answerCallbackQuery.bind(bot);
+
+bot.answerCallbackQuery =
+  async (...args) => {
+    try {
+      return await originalAnswerCallbackQuery(
+        ...args
+      );
+    } catch (error) {
+      const message =
+        String(
+          error?.message ||
+          error?.response?.body?.description ||
+          ""
+        );
+
+      if (
+        message.includes(
+          "query is too old"
+        ) ||
+        message.includes(
+          "query ID is invalid"
+        ) ||
+        message.includes(
+          "response timeout expired"
+        )
+      ) {
+        console.warn(
+          "Ignored expired Telegram callback"
+        );
+
+        return false;
+      }
+
+      throw error;
+    }
+  };
+
 const PAGE_SIZE = 6;
 
 /*
