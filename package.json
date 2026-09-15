@@ -5,8 +5,7 @@
   "main": "src/test.js",
   "scripts": {
     "test": "node src/test.js",
-    "start": "node src/bot.js",
-    "test:weta": "node src/weta-tls-test.js"
+    "start": "node src/bot.js"
   },
   "dependencies": {
     "cheerio": "^1.0.0",
