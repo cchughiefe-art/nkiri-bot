@@ -31,6 +31,12 @@ const {
 } = require("./core/media");
 
 const {
+  movieText,
+  seriesText,
+  sourceLabel
+} = require("./core/catalog-ui");
+
+const {
   create,
   get
 } = require("./core/callbacks");
@@ -1699,23 +1705,13 @@ bot.on(
         );
 
         await bot.editMessageText(
-          `🎬 ${cleanTitle(movie.title)}\n\n` +
+          movieText(movie) +
+          `\n\n🔗 ${sourceLabel(resolved.type)}` +
           (
-            movie.description
-              ? `${movie.description}\n\n`
-              : ""
-          ) +
-          (
-            movie.size
-              ? `📦 Size: ${movie.size}\n`
-              : ""
-          ) +
-          (
-            resolved.type
-              ? `🔗 Source: ${resolved.type}\n`
-              : ""
-          ) +
-          "\nYour download link is ready.",
+            resolved.external
+              ? "\nContinue on the download provider page."
+              : "\nYour download link is ready."
+          ),
           {
             chat_id:
               chatId,
@@ -1726,7 +1722,9 @@ bot.on(
                 [
                   {
                     text:
-                      "⬇️ Download Now",
+                      resolved.external
+                        ? "🌐 Continue to Download"
+                        : "⬇️ Download Now",
                     url:
                       resolved.directUrl
                   }

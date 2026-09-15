@@ -1,5 +1,12 @@
 const cheerio = require("cheerio");
 const { fetch, Agent } = require("undici");
+const { classifyDownload } = require("../resolvers");
+const {
+  extractDescription,
+  extractYear,
+  extractSize,
+  extractQuality
+} = require("./metadata");
 
 const dispatcher = new Agent({
   connect: {
@@ -99,10 +106,13 @@ async function parseNkiriPage(url) {
       return;
     }
 
+    const sourceType =
+      classifyDownload(
+        resolvedUrl
+      );
+
     const isDownload =
-      resolvedUrl.includes(
-        "downloadwella.com"
-      ) ||
+      sourceType !== "external" ||
       text.includes(
         "download movie"
       );
@@ -138,83 +148,19 @@ async function parseNkiriPage(url) {
    * TheNkiri pages contain useful synopsis text mixed with
    * download instructions, SEO filler and unrelated text.
    */
-  function extractDescription() {
-    const candidates = [];
-
-    $("article p, .entry-content p").each((index, element) => {
-      const text = $(element)
-        .text()
-        .replace(/\\s+/g, " ")
-        .trim();
-
-      if (text.length < 60) return;
-
-      const lower = text.toLowerCase();
-
-      const blocked = [
-        "download movie",
-        "download nollywood",
-        "download hollywood",
-        "fzmovies",
-        "netnaija",
-        "o2tvseries",
-        "torrent",
-        "for readability",
-        "i am buying a book",
-        "i have bought",
-        "transition words",
-        "report abuse"
-      ];
-
-      if (
-        blocked.some(word =>
-          lower.includes(word)
-        )
-      ) {
-        return;
-      }
-
-      let score = 0;
-
-      // Synopsis paragraphs are normally substantial,
-      // natural prose.
-      if (text.length >= 100) score += 4;
-      if (text.length >= 150) score += 2;
-      if (text.length <= 1000) score += 1;
-
-      // Prefer early article paragraphs.
-      score += Math.max(0, 5 - index);
-
-      // Penalize technical/download instructions.
-      if (
-        /subtitles?|vlc|audio is|download size|click|link|episode/i
-          .test(text)
-      ) {
-        score -= 6;
-      }
-
-      candidates.push({
-        text,
-        score
-      });
-    });
-
-    candidates.sort(
-      (a, b) =>
-        b.score - a.score
-    );
-
-    return candidates[0]?.text || null;
-  }
-
   const description =
-    extractDescription();
+    extractDescription($);
 
   const pageText = $.text();
 
-  const sizeMatch = pageText.match(
-    /Download Size\s*(?:This Video is)?\s*([\d.]+\s*(?:MB|GB))/i
-  );
+  const size =
+    extractSize(pageText);
+
+  const year =
+    extractYear(title);
+
+  const quality =
+    extractQuality(pageText);
 
   const poster =
     $('meta[property="og:image"]').attr("content") ||
@@ -223,9 +169,11 @@ async function parseNkiriPage(url) {
 
   return {
     title,
-    size: sizeMatch ? sizeMatch[1] : null,
+    size,
     poster,
     description,
+    year,
+    quality,
     downloadUrl,
     downloadUrls
   };

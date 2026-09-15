@@ -1,6 +1,11 @@
 const cheerio = require("cheerio");
 const { fetch, Agent } = require("undici");
 const { classifyDownload } = require("../resolvers");
+const {
+  extractDescription,
+  extractYear,
+  extractQuality
+} = require("./metadata");
 
 const dispatcher = new Agent({
   connect: { timeout: 30000 },
@@ -133,6 +138,18 @@ async function parseSeriesPage(url) {
       .attr("src") ||
     null;
 
+  const pageText =
+    $.text();
+
+  const description =
+    extractDescription($);
+
+  const year =
+    extractYear(title);
+
+  const quality =
+    extractQuality(pageText);
+
   const downloads = [];
   const seen =
     new Set();
@@ -214,6 +231,11 @@ async function parseSeriesPage(url) {
   return {
     title,
     poster,
+    description,
+    year,
+    quality,
+    episodeCount:
+      episodes.length,
     isSeries:
       episodes.length > 1,
     episodes
