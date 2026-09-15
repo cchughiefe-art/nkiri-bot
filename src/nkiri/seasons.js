@@ -167,6 +167,42 @@ async function discoverSeasons(
       continue;
     }
 
+    /*
+     * TheNkiri search can occasionally return
+     * a correct-looking title attached to an
+     * unrelated old post URL.
+     *
+     * Example:
+     * Reacher S01 -> /suspicion-s01-...
+     *
+     * Reject obvious title/URL mismatches.
+     */
+    const baseWords =
+      normalizeForSearch(baseTitle)
+        .split(/\s+/)
+        .filter(word => word.length >= 4);
+
+    const normalizedUrl =
+      normalizeForSearch(
+        item.url
+          .replace(/^https?:\/\/[^/]+/i, "")
+          .replace(/[-_/]+/g, " ")
+      );
+
+    if (
+      baseWords.length &&
+      !baseWords.some(
+        word =>
+          normalizedUrl.includes(word)
+      )
+    ) {
+      console.log(
+        `Skipping suspicious season result: ${item.cleanTitle || item.title} -> ${item.url}`
+      );
+
+      continue;
+    }
+
     const season =
       extractSeason(
         item.cleanTitle ||
