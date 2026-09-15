@@ -12,6 +12,8 @@ const EMPTY = {
   cache: {},
   brokenLinks: {},
   reports: [],
+  users: {},
+  downloads: [],
   stats: {
     searches: 0,
     downloads: 0,
@@ -171,6 +173,192 @@ function saveReport(details = {}) {
   return report;
 }
 
+function trackUser(user = {}) {
+  if (!user.id) return;
+
+  const data = readStore();
+
+  data.users ||= {};
+
+  const key =
+    String(user.id);
+
+  const existing =
+    data.users[key] || {
+      id: user.id,
+      firstSeenAt: Date.now(),
+      searches: 0,
+      downloads: 0,
+      reports: 0
+    };
+
+  data.users[key] = {
+    ...existing,
+    username:
+      user.username || existing.username || null,
+    firstName:
+      user.first_name || existing.firstName || null,
+    lastName:
+      user.last_name || existing.lastName || null,
+    language:
+      user.language_code || existing.language || null,
+    lastSeenAt:
+      Date.now()
+  };
+
+  writeStore(data);
+}
+
+function incrementUserStat(
+  userId,
+  name
+) {
+  if (!userId) return;
+
+  const data = readStore();
+
+  data.users ||= {};
+
+  const key =
+    String(userId);
+
+  if (!data.users[key]) {
+    data.users[key] = {
+      id: userId,
+      firstSeenAt: Date.now(),
+      lastSeenAt: Date.now(),
+      searches: 0,
+      downloads: 0,
+      reports: 0
+    };
+  }
+
+  data.users[key][name] =
+    (data.users[key][name] || 0) + 1;
+
+  data.users[key].lastSeenAt =
+    Date.now();
+
+  writeStore(data);
+}
+
+function trackDownload(details = {}) {
+  const data = readStore();
+
+  data.downloads ||= [];
+
+  const item = {
+    id:
+      `DL-${Date.now().toString(36).toUpperCase()}`,
+    createdAt:
+      Date.now(),
+    ...details
+  };
+
+  data.downloads.push(item);
+
+  /*
+   * Keep recent download history bounded
+   * so store.json cannot grow forever.
+   */
+  if (data.downloads.length > 5000) {
+    data.downloads =
+      data.downloads.slice(-5000);
+  }
+
+  writeStore(data);
+
+  return item;
+}
+
+function getAnalytics() {
+  const data = readStore();
+
+  const users =
+    Object.values(
+      data.users || {}
+    );
+
+  const downloads =
+    data.downloads || [];
+
+  const reports =
+    data.reports || [];
+
+  const now = Date.now();
+
+  const day =
+    24 * 60 * 60 * 1000;
+
+  const active24h =
+    users.filter(
+      user =>
+        user.lastSeenAt &&
+        now - user.lastSeenAt <= day
+    ).length;
+
+  const active7d =
+    users.filter(
+      user =>
+        user.lastSeenAt &&
+        now - user.lastSeenAt <=
+        7 * day
+    ).length;
+
+  const downloads24h =
+    downloads.filter(
+      item =>
+        item.createdAt &&
+        now - item.createdAt <= day
+    ).length;
+
+  const titleCounts = {};
+
+  for (const item of downloads) {
+    const title =
+      item.title ||
+      "Unknown";
+
+    titleCounts[title] =
+      (titleCounts[title] || 0) + 1;
+  }
+
+  const topDownloads =
+    Object.entries(titleCounts)
+      .sort(
+        (a, b) =>
+          b[1] - a[1]
+      )
+      .slice(0, 10)
+      .map(
+        ([title, count]) => ({
+          title,
+          count
+        })
+      );
+
+  return {
+    totalUsers:
+      users.length,
+    active24h,
+    active7d,
+    totalDownloads:
+      downloads.length,
+    downloads24h,
+    reports:
+      reports.length,
+    searches:
+      data.stats?.searches || 0,
+    failedDownloads:
+      data.stats?.failedDownloads || 0,
+    topDownloads,
+    recentDownloads:
+      downloads
+        .slice(-10)
+        .reverse()
+  };
+}
+
 function cleanup() {
   const data = readStore();
   const now = Date.now();
@@ -198,5 +386,9 @@ module.exports = {
   incrementStat,
   reportBroken,
   saveReport,
+  trackUser,
+  incrementUserStat,
+  trackDownload,
+  getAnalytics,
   cleanup
 };

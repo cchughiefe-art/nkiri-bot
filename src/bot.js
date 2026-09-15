@@ -57,6 +57,10 @@ const {
   incrementStat,
   reportBroken,
   saveReport,
+  trackUser,
+  incrementUserStat,
+  trackDownload,
+  getAnalytics,
   cleanup
 } = require("./core/store");
 
@@ -92,6 +96,13 @@ const awaitingReport =
 const REPORT_CHAT_ID =
   process.env.REPORT_CHAT_ID ||
   null;
+
+const ADMIN_USER_ID =
+  String(
+    process.env.ADMIN_USER_ID ||
+    process.env.REPORT_CHAT_ID ||
+    ""
+  );
 
 function homeKeyboard() {
   return {
@@ -669,8 +680,77 @@ async function sendReportToAdmin(
 bot.onText(
   /\/start(?:\s+.*)?$/,
   async msg => {
+    trackUser(
+      msg.from
+    );
+
     await showHome(
       msg.chat.id
+    );
+  }
+);
+
+bot.onText(
+  /\/stats(?:\s+.*)?$/,
+  async msg => {
+    if (
+      String(msg.from?.id) !==
+      ADMIN_USER_ID
+    ) {
+      return;
+    }
+
+    const a =
+      getAnalytics();
+
+    const top =
+      a.topDownloads.length
+        ? a.topDownloads
+            .map(
+              (item, index) =>
+                `${index + 1}. ${item.title} — ${item.count}`
+            )
+            .join("\n")
+        : "No downloads yet.";
+
+    const recent =
+      a.recentDownloads.length
+        ? a.recentDownloads
+            .map(item => {
+              const user =
+                item.username
+                  ? `@${item.username}`
+                  : `ID ${item.userId}`;
+
+              const extra =
+                item.episode
+                  ? ` • ${item.episode}`
+                  : "";
+
+              return (
+                `• ${item.title}${extra}\n` +
+                `  ${user}`
+              );
+            })
+            .join("\n")
+        : "No recent downloads.";
+
+    const text =
+      `📊 TheNkiri Bot Stats\n\n` +
+      `👥 Total users: ${a.totalUsers}\n` +
+      `🟢 Active 24h: ${a.active24h}\n` +
+      `📅 Active 7d: ${a.active7d}\n\n` +
+      `🔎 Searches: ${a.searches}\n` +
+      `⬇️ Downloads: ${a.totalDownloads}\n` +
+      `⚡ Downloads 24h: ${a.downloads24h}\n` +
+      `❌ Failed downloads: ${a.failedDownloads}\n` +
+      `⚠️ Reports: ${a.reports}\n\n` +
+      `🔥 Most Downloaded\n${top}\n\n` +
+      `🕘 Recent Downloads\n${recent}`;
+
+    await bot.sendMessage(
+      msg.chat.id,
+      text
     );
   }
 );
@@ -773,6 +853,10 @@ bot.on(
   async msg => {
     if (!msg.text) return;
 
+    trackUser(
+      msg.from
+    );
+
     const text =
       msg.text.trim();
 
@@ -799,6 +883,11 @@ bot.on(
     if (pendingReport) {
       awaitingReport.delete(
         chatId
+      );
+
+      incrementUserStat(
+        msg.from?.id,
+        "reports"
       );
 
       const report =
@@ -882,6 +971,11 @@ bot.on(
       );
 
     try {
+      incrementUserStat(
+        msg.from?.id,
+        "searches"
+      );
+
       await renderSearch(
         chatId,
         text,
@@ -932,6 +1026,10 @@ bot.on(
   async query => {
     const data =
       query.data || "";
+
+    trackUser(
+      query.from
+    );
 
     const chatId =
       query.message.chat.id;
@@ -2083,6 +2181,26 @@ bot.on(
           "downloads"
         );
 
+        incrementUserStat(
+          query.from.id,
+          "downloads"
+        );
+
+        trackDownload({
+          userId:
+            query.from.id,
+          username:
+            query.from.username || null,
+          type:
+            "episode",
+          title:
+            item.title,
+          episode:
+            item.label,
+          provider:
+            resolved.sourceType || null
+        });
+
         await bot.editMessageText(
           `📺 ${item.title}\n` +
           `${item.label}\n\n` +
@@ -2246,6 +2364,24 @@ bot.on(
         incrementStat(
           "downloads"
         );
+
+        incrementUserStat(
+          query.from.id,
+          "downloads"
+        );
+
+        trackDownload({
+          userId:
+            query.from.id,
+          username:
+            query.from.username || null,
+          type:
+            "movie",
+          title:
+            item.title,
+          provider:
+            resolved.sourceType || null
+        });
 
         await bot.editMessageText(
         downloadMessage(
