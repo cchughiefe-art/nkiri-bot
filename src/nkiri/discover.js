@@ -1,8 +1,5 @@
 const cheerio = require("cheerio");
-const {
-  fetch,
-  Agent
-} = require("undici");
+const { fetch, Agent } = require("undici");
 
 const {
   cleanTitle,
@@ -16,9 +13,7 @@ const {
 } = require("../core/store");
 
 const dispatcher = new Agent({
-  connect: {
-    timeout: 30000
-  },
+  connect: { timeout: 30000 },
   headersTimeout: 60000,
   bodyTimeout: 60000
 });
@@ -31,66 +26,18 @@ const HEADERS = {
 };
 
 const GENRES = {
-  action: {
-    name: "Action",
-    emoji: "💥",
-    slug: "action"
-  },
-  romance: {
-    name: "Romance",
-    emoji: "❤️",
-    slug: "romance"
-  },
-  "sci-fi": {
-    name: "Sci-Fi",
-    emoji: "🚀",
-    slug: "sci-fi"
-  },
-  comedy: {
-    name: "Comedy",
-    emoji: "😂",
-    slug: "comedy"
-  },
-  horror: {
-    name: "Horror",
-    emoji: "👻",
-    slug: "horror"
-  },
-  thriller: {
-    name: "Thriller",
-    emoji: "🔪",
-    slug: "thriller"
-  },
-  drama: {
-    name: "Drama",
-    emoji: "🎭",
-    slug: "drama"
-  },
-  crime: {
-    name: "Crime",
-    emoji: "🕵️",
-    slug: "crime"
-  },
-  fantasy: {
-    name: "Fantasy",
-    emoji: "🧙",
-    slug: "fantasy"
-  },
-  adventure: {
-    name: "Adventure",
-    emoji: "🗺️",
-    slug: "adventure"
-  },
-  mystery: {
-    name: "Mystery",
-    emoji: "🧩",
-    slug: "mystery"
-  },
-  animation: {
-    name: "Animation",
-    emoji: "🎨",
-    slug: "animation"
-  }
+  action: { name: "Action", emoji: "💥", slug: "action" },
+  romance: { name: "Romance", emoji: "❤️", slug: "romance" },
+  "sci-fi": { name: "Sci-Fi", emoji: "🚀", slug: "sci-fi" },
+  comedy: { name: "Comedy", emoji: "😂", slug: "comedy" },
+  horror: { name: "Horror", emoji: "👻", slug: "horror" },
+  thriller: { name: "Thriller", emoji: "🔪", slug: "thriller" },
+  drama: { name: "Drama", emoji: "🎭", slug: "drama" },
+  crime: { name: "Crime", emoji: "🕵️", slug: "crime" },
+  fantasy: { name: "Fantasy", emoji: "🧙", slug: "fantasy" },
+  adventure: { name: "Adventure", emoji: "🗺️", slug: "adventure" },
+  mystery: { name: "Mystery", emoji: "🧩", slug: "mystery" },
+  animation: { name: "Animation", emoji: "🎨", slug: "animation" }
 };
 
 function clean(value) {
@@ -100,12 +47,11 @@ function clean(value) {
 }
 
 async function request(url) {
-  const response =
-    await fetch(url, {
-      dispatcher,
-      headers: HEADERS,
-      redirect: "follow"
-    });
+  const response = await fetch(url, {
+    dispatcher,
+    headers: HEADERS,
+    redirect: "follow"
+  });
 
   if (!response.ok) {
     throw new Error(
@@ -118,79 +64,171 @@ async function request(url) {
 
 function parsePosts(html, baseUrl) {
   const $ = cheerio.load(html);
-
   const results = [];
   const seen = new Set();
 
-  $(
-    "article, .post, .type-post"
-  ).each((_, element) => {
-    const item = $(element);
+  $("article, .post, .type-post")
+    .each((_, element) => {
+      const item = $(element);
 
-    const anchor =
-      item.find(
-        ".entry-title a, h1 a, h2 a, h3 a"
-      ).first();
+      const anchor = item
+        .find(
+          ".entry-title a, h1 a, h2 a, h3 a"
+        )
+        .first();
 
-    const title =
-      clean(anchor.text());
+      const title = clean(anchor.text());
+      const href = anchor.attr("href");
 
-    const href =
-      anchor.attr("href");
+      if (!title || !href) return;
 
-    if (!title || !href) {
-      return;
-    }
+      let url;
 
-    let url;
-
-    try {
-      url =
-        new URL(
+      try {
+        url = new URL(
           href,
           baseUrl
         ).href;
-    } catch {
-      return;
-    }
+      } catch {
+        return;
+      }
 
-    if (
-      !url.startsWith(
-        "https://thenkiri.com/"
-      ) ||
-      seen.has(url)
-    ) {
-      return;
-    }
+      if (
+        !url.startsWith(
+          "https://thenkiri.com/"
+        ) ||
+        seen.has(url)
+      ) {
+        return;
+      }
 
-    seen.add(url);
+      seen.add(url);
 
-    const image =
-      item.find("img")
-        .first()
-        .attr("data-src") ||
-      item.find("img")
-        .first()
-        .attr("data-lazy-src") ||
-      item.find("img")
-        .first()
-        .attr("src") ||
-      null;
+      const image =
+        item.find("img")
+          .first()
+          .attr("data-src") ||
+        item.find("img")
+          .first()
+          .attr("data-lazy-src") ||
+        item.find("img")
+          .first()
+          .attr("src") ||
+        null;
 
-    results.push({
-      title,
-      cleanTitle:
-        cleanTitle(title),
-      year:
-        extractYear(title),
-      type:
-        detectType(title),
-      url,
-      image
+      results.push({
+        title,
+        cleanTitle:
+          cleanTitle(title),
+        year:
+          extractYear(title),
+        type:
+          detectType(title),
+        url,
+        image
+      });
     });
-  });
 
   return results;
+}
+
+function getMaxSourcePage(html) {
+  const $ = cheerio.load(html);
+
+  let maxPage = 1;
+
+  $("a.page-numbers")
+    .each((_, element) => {
+      const text =
+        clean($(element).text());
+
+      const number =
+        Number(text);
+
+      if (
+        Number.isInteger(number) &&
+        number > maxPage
+      ) {
+        maxPage = number;
+      }
+
+      const href =
+        $(element)
+          .attr("href") ||
+        "";
+
+      const match =
+        href.match(
+          /\/page\/(\d+)\//
+        );
+
+      if (match) {
+        maxPage =
+          Math.max(
+            maxPage,
+            Number(match[1])
+          );
+      }
+    });
+
+  return maxPage;
+}
+
+function sourceUrl(
+  slug,
+  sourcePage
+) {
+  return sourcePage === 1
+    ? `https://thenkiri.com/tag/${slug}/`
+    : `https://thenkiri.com/tag/${slug}/page/${sourcePage}/`;
+}
+
+async function getSourcePage(
+  config,
+  sourcePage
+) {
+  const cacheKey =
+    `genre-source:${config.slug}:${sourcePage}:v2`;
+
+  const cached =
+    getCache(cacheKey);
+
+  if (cached) {
+    return cached;
+  }
+
+  console.log(
+    `Loading ${config.name} source page ${sourcePage}...`
+  );
+
+  const response =
+    await request(
+      sourceUrl(
+        config.slug,
+        sourcePage
+      )
+    );
+
+  const html =
+    await response.text();
+
+  const value = {
+    posts:
+      parsePosts(
+        html,
+        response.url
+      ),
+    maxSourcePage:
+      getMaxSourcePage(html)
+  };
+
+  setCache(
+    cacheKey,
+    value,
+    30 * 60 * 1000
+  );
+
+  return value;
 }
 
 async function discoverGenre(
@@ -222,128 +260,52 @@ async function discoverGenre(
     );
 
   /*
-   * Each Telegram page can be built from
-   * the corresponding WordPress tag page.
-   * But caching several source pages gives
-   * us stable Telegram pagination.
+   * Fetch page 1 only first.
+   * It tells us:
+   * - posts per WordPress page
+   * - how many source pages exist
    */
-  const cacheKey =
-    `genre:${config.slug}:v1`;
-
-  let results =
-    getCache(cacheKey);
-
-  if (!results) {
-    results = [];
-
-    const seen = new Set();
-
-    /*
-     * Load a useful catalogue without
-     * crawling the entire website.
-     */
-    const MAX_PAGES = 10;
-
-    for (
-      let sourcePage = 1;
-      sourcePage <= MAX_PAGES;
-      sourcePage++
-    ) {
-      const url =
-        sourcePage === 1
-          ? `https://thenkiri.com/tag/${config.slug}/`
-          : `https://thenkiri.com/tag/${config.slug}/page/${sourcePage}/`;
-
-      console.log(
-        `Loading ${config.name} page ${sourcePage}...`
-      );
-
-      let response;
-
-      try {
-        response =
-          await request(url);
-      } catch (error) {
-        if (sourcePage > 1) {
-          break;
-        }
-
-        throw error;
-      }
-
-      const html =
-        await response.text();
-
-      const posts =
-        parsePosts(
-          html,
-          response.url
-        );
-
-      if (!posts.length) {
-        break;
-      }
-
-      let added = 0;
-
-      for (const post of posts) {
-        if (seen.has(post.url)) {
-          continue;
-        }
-
-        seen.add(post.url);
-        results.push(post);
-        added++;
-      }
-
-      if (!added) {
-        break;
-      }
-
-      const $ =
-        cheerio.load(html);
-
-      const hasNext =
-        Boolean(
-          $(
-            'a.next.page-numbers, .nav-links a.next, a[rel="next"]'
-          ).length
-        );
-
-      if (!hasNext) {
-        let numberedNext = false;
-
-        $("a.page-numbers")
-          .each((_, element) => {
-            const href =
-              $(element)
-                .attr("href") ||
-              "";
-
-            if (
-              href.includes(
-                `/page/${sourcePage + 1}/`
-              )
-            ) {
-              numberedNext = true;
-            }
-          });
-
-        if (!numberedNext) {
-          break;
-        }
-      }
-    }
-
-    setCache(
-      cacheKey,
-      results,
-      30 * 60 * 1000
+  const first =
+    await getSourcePage(
+      config,
+      1
     );
+
+  const sourcePageSize =
+    Math.max(
+      1,
+      first.posts.length
+    );
+
+  const maxSourcePage =
+    Math.max(
+      1,
+      first.maxSourcePage
+    );
+
+  /*
+   * Fetch the final source page so total
+   * title count is accurate without crawling
+   * every page in between.
+   */
+  let last = first;
+
+  if (maxSourcePage > 1) {
+    last =
+      await getSourcePage(
+        config,
+        maxSourcePage
+      );
   }
 
   const total =
-    results.length;
+    maxSourcePage === 1
+      ? first.posts.length
+      : (
+          (maxSourcePage - 1) *
+          sourcePageSize
+        ) +
+        last.posts.length;
 
   const pages =
     Math.max(
@@ -363,27 +325,84 @@ async function discoverGenre(
     (safePage - 1) *
     perPage;
 
+  const sourcePage =
+    Math.floor(
+      start /
+      sourcePageSize
+    ) + 1;
+
+  const offset =
+    start %
+    sourcePageSize;
+
+  let current;
+
+  if (sourcePage === 1) {
+    current = first;
+  } else if (
+    sourcePage === maxSourcePage
+  ) {
+    current = last;
+  } else {
+    current =
+      await getSourcePage(
+        config,
+        sourcePage
+      );
+  }
+
+  let results =
+    current.posts.slice(
+      offset,
+      offset + perPage
+    );
+
+  /*
+   * A Telegram page can cross a WordPress
+   * source-page boundary.
+   */
+  if (
+    results.length < perPage &&
+    sourcePage < maxSourcePage
+  ) {
+    let next;
+
+    if (
+      sourcePage + 1 ===
+      maxSourcePage
+    ) {
+      next = last;
+    } else {
+      next =
+        await getSourcePage(
+          config,
+          sourcePage + 1
+        );
+    }
+
+    results =
+      results.concat(
+        next.posts.slice(
+          0,
+          perPage -
+          results.length
+        )
+      );
+  }
+
   return {
     genre,
     name:
       config.name,
     emoji:
       config.emoji,
-
-    results:
-      results.slice(
-        start,
-        start + perPage
-      ),
-
+    results,
     total,
     page:
       safePage,
     pages,
-
     hasPrevious:
       safePage > 1,
-
     hasNext:
       safePage < pages
   };

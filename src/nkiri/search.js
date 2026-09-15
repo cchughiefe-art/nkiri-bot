@@ -196,7 +196,7 @@ async function searchNkiri(
       .toLowerCase();
 
   const cacheKey =
-    `search:${normalized}:all-pages-v3`;
+    `search:${normalized}:all-pages-v4`;
 
   let results =
     getCache(cacheKey);
@@ -397,6 +397,56 @@ async function searchNkiri(
       if (strongMatches.length) {
         results = strongMatches;
       }
+    }
+
+    /*
+     * Natural season ordering.
+     *
+     * When search results are clearly seasons of
+     * the same title, show S01, S02, S03...
+     * instead of ranking later seasons arbitrarily.
+     */
+    const seasonNumber = item => {
+      const title =
+        String(
+          item.cleanTitle ||
+          item.title ||
+          ""
+        );
+
+      const match =
+        title.match(
+          /\bS(?:eason)?\s*0?(\d{1,3})\b/i
+        );
+
+      return match
+        ? Number(match[1])
+        : null;
+    };
+
+    const seasonItems =
+      results.filter(
+        item =>
+          seasonNumber(item) !== null
+      );
+
+    if (
+      seasonItems.length >= 2 &&
+      seasonItems.length ===
+      results.length
+    ) {
+      results =
+        [...results].sort(
+          (a, b) => {
+            const sa =
+              seasonNumber(a);
+
+            const sb =
+              seasonNumber(b);
+
+            return sa - sb;
+          }
+        );
     }
 
     setCache(
