@@ -11,6 +11,7 @@ const STORE_FILE =
 const EMPTY = {
   cache: {},
   brokenLinks: {},
+  reports: [],
   stats: {
     searches: 0,
     downloads: 0,
@@ -139,6 +140,37 @@ function reportBroken(
   writeStore(data);
 }
 
+function saveReport(details = {}) {
+  const data = readStore();
+
+  data.reports ||= [];
+
+  const report = {
+    id:
+      `RPT-${Date.now().toString(36).toUpperCase()}`,
+    createdAt:
+      Date.now(),
+    status:
+      "open",
+    ...details
+  };
+
+  data.reports.push(report);
+
+  /*
+   * Prevent unlimited local-file growth.
+   * Keep the most recent 1000 reports.
+   */
+  if (data.reports.length > 1000) {
+    data.reports =
+      data.reports.slice(-1000);
+  }
+
+  writeStore(data);
+
+  return report;
+}
+
 function cleanup() {
   const data = readStore();
   const now = Date.now();
@@ -165,5 +197,6 @@ module.exports = {
   setCache,
   incrementStat,
   reportBroken,
+  saveReport,
   cleanup
 };

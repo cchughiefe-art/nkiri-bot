@@ -56,6 +56,7 @@ const {
 const {
   incrementStat,
   reportBroken,
+  saveReport,
   cleanup
 } = require("./core/store");
 
@@ -84,6 +85,13 @@ const PAGE_SIZE = 6;
  */
 const awaitingSearch =
   new Set();
+
+const awaitingReport =
+  new Map();
+
+const REPORT_CHAT_ID =
+  process.env.REPORT_CHAT_ID ||
+  null;
 
 function homeKeyboard() {
   return {
@@ -119,6 +127,13 @@ function homeKeyboard() {
           text: "🧭 Discover",
           callback_data:
             "discover:menu"
+        }
+      ],
+      [
+        {
+          text: "⚠️ Report a Problem",
+          callback_data:
+            "report:menu"
         }
       ],
       [
@@ -553,11 +568,123 @@ async function renderGenre(
   }
 }
 
+function reportMenuKeyboard() {
+  return {
+    inline_keyboard: [
+      [
+        {
+          text: "⬇️ Download problem",
+          callback_data:
+            "report:type:download"
+        }
+      ],
+      [
+        {
+          text: "🔎 Search problem",
+          callback_data:
+            "report:type:search"
+        }
+      ],
+      [
+        {
+          text: "📺 Missing title / episode",
+          callback_data:
+            "report:type:missing"
+        }
+      ],
+      [
+        {
+          text: "📝 Wrong information",
+          callback_data:
+            "report:type:info"
+        }
+      ],
+      [
+        {
+          text: "🤖 Bot problem",
+          callback_data:
+            "report:type:bot"
+        }
+      ],
+      [
+        {
+          text: "💬 Other",
+          callback_data:
+            "report:type:other"
+        }
+      ],
+      [
+        {
+          text: "🏠 Home",
+          callback_data:
+            "home:menu"
+        }
+      ]
+    ]
+  };
+}
+
+const REPORT_LABELS = {
+  download: "Download problem",
+  search: "Search problem",
+  missing: "Missing title / episode",
+  info: "Wrong information",
+  bot: "Bot problem",
+  other: "Other"
+};
+
+async function sendReportToAdmin(
+  report,
+  user
+) {
+  if (!REPORT_CHAT_ID) {
+    return;
+  }
+
+  const username =
+    user?.username
+      ? `@${user.username}`
+      : "No username";
+
+  const text =
+    `⚠️ New Problem Report\n\n` +
+    `ID: ${report.id}\n` +
+    `Type: ${report.category}\n` +
+    `From: ${user?.first_name || "User"}\n` +
+    `Username: ${username}\n` +
+    `User ID: ${user?.id || "unknown"}\n\n` +
+    `${report.message}`;
+
+  await bot.sendMessage(
+    REPORT_CHAT_ID,
+    text
+  ).catch(error => {
+    console.error(
+      "REPORT FORWARD ERROR:",
+      error.message
+    );
+  });
+}
+
 bot.onText(
   /\/start(?:\s+.*)?$/,
   async msg => {
     await showHome(
       msg.chat.id
+    );
+  }
+);
+
+bot.onText(
+  /\/report(?:\s+.*)?$/,
+  async msg => {
+    await bot.sendMessage(
+      msg.chat.id,
+      "⚠️ Report a Problem\n\nChoose the type of problem:",
+      {
+        reply_markup:
+          reportMenuKeyboard()
+      }
     );
   }
 );
@@ -659,6 +786,76 @@ bot.on(
     const chatId =
       msg.chat.id;
 
+    /*
+     * If this user is currently writing a
+     * problem report, do not treat their
+     * message as a movie search.
+     */
+    const pendingReport =
+      awaitingReport.get(
+        chatId
+      );
+
+    if (pendingReport) {
+      awaitingReport.delete(
+        chatId
+      );
+
+      const report =
+        saveReport({
+          category:
+            pendingReport.label,
+          categoryKey:
+            pendingReport.type,
+          message:
+            text.slice(0, 2000),
+          userId:
+            msg.from?.id || null,
+          username:
+            msg.from?.username || null,
+          firstName:
+            msg.from?.first_name || null,
+          chatId:
+            chatId
+        });
+
+      await sendReportToAdmin(
+        report,
+        msg.from
+      );
+
+      await bot.sendMessage(
+        chatId,
+        `✅ Report received\n\n` +
+        `Report ID: ${report.id}\n\n` +
+        `Thanks. We'll use this to investigate the problem.`,
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text:
+                    "⚠️ Report Another",
+                  callback_data:
+                    "report:menu"
+                }
+              ],
+              [
+                {
+                  text:
+                    "🏠 Home",
+                  callback_data:
+                    "home:menu"
+                }
+              ]
+            ]
+          }
+        }
+      );
+
+      return;
+    }
+
     awaitingSearch.delete(
       chatId
     );
@@ -738,6 +935,79 @@ bot.on(
 
     const chatId =
       query.message.chat.id;
+
+    /*
+     * REPORT A PROBLEM
+     */
+    if (
+      data === "report:menu"
+    ) {
+      await bot.answerCallbackQuery(
+        query.id
+      );
+
+      awaitingReport.delete(
+        chatId
+      );
+
+      await bot.sendMessage(
+        chatId,
+        "⚠️ Report a Problem\n\nChoose the type of problem:",
+        {
+          reply_markup:
+            reportMenuKeyboard()
+        }
+      );
+
+      return;
+    }
+
+    if (
+      data.startsWith(
+        "report:type:"
+      )
+    ) {
+      const type =
+        data.split(":")[2];
+
+      const label =
+        REPORT_LABELS[type];
+
+      if (!label) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "Unknown report type."
+          }
+        );
+
+        return;
+      }
+
+      awaitingReport.set(
+        chatId,
+        {
+          type,
+          label,
+          createdAt:
+            Date.now()
+        }
+      );
+
+      await bot.answerCallbackQuery(
+        query.id
+      );
+
+      await bot.sendMessage(
+        chatId,
+        `⚠️ ${label}\n\n` +
+        "Describe the problem in one message.\n\n" +
+        "Include the movie/series name, season or episode if relevant."
+      );
+
+      return;
+    }
 
     /*
      * DISCOVER

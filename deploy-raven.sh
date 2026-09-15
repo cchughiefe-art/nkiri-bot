@@ -35,6 +35,7 @@ put launcher.ts
 put package.json
 put package-lock.json
 put src/bot.js
+put src/core/store.js
 put src/nkiri/search.js
 put src/nkiri/discover.js
 bye
