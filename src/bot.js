@@ -1699,14 +1699,23 @@ bot.on(
         );
 
         await bot.editMessageText(
-          `🎬 ${cleanTitle(movie.title)}\n` +
+          `🎬 ${cleanTitle(movie.title)}\n\n` +
           (
-            movie.size
-              ? `📦 ${movie.size}\n`
+            movie.description
+              ? `${movie.description}\n\n`
               : ""
           ) +
-          "\nYour download link is ready.\n" +
-          "Start it now because temporary links can expire.",
+          (
+            movie.size
+              ? `📦 Size: ${movie.size}\n`
+              : ""
+          ) +
+          (
+            resolved.type
+              ? `🔗 Source: ${resolved.type}\n`
+              : ""
+          ) +
+          "\nYour download link is ready.",
           {
             chat_id:
               chatId,
