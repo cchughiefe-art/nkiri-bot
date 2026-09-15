@@ -18,6 +18,11 @@ const {
 } = require("./nkiri/series");
 
 const {
+  discoverSeasons,
+  extractSeason
+} = require("./nkiri/seasons");
+
+const {
   resolveDownloadWella,
   resolveWithFallback
 } = require("./resolvers/downloadwella");
@@ -792,101 +797,185 @@ bot.on(
           series.isSeries &&
           series.episodes.length > 1
         ) {
-          const grouped =
-            new Map();
+          /*
+           * Discover other season pages for
+           * the same series before showing
+           * individual episodes.
+           */
+          let discovered = {
+            baseTitle:
+              cleanTitle(series.title),
+            seasons: []
+          };
+
+          try {
+            discovered =
+              await discoverSeasons(
+                series.title
+              );
+          } catch (error) {
+            console.error(
+              "SEASON DISCOVERY ERROR:",
+              error.message
+            );
+          }
+
+          const selectedSeason =
+            extractSeason(
+              series.title
+            );
+
+          /*
+           * Make sure the currently selected
+           * page is present even if search
+           * didn't return it.
+           */
+          const seasons =
+            [...discovered.seasons];
+
+          if (
+            selectedSeason &&
+            !seasons.some(
+              item =>
+                item.season ===
+                selectedSeason
+            )
+          ) {
+            seasons.push({
+              season:
+                selectedSeason,
+              title:
+                cleanTitle(
+                  series.title
+                ),
+              url:
+                item.url,
+              image:
+                series.poster ||
+                null
+            });
+
+            seasons.sort(
+              (a, b) =>
+                a.season -
+                b.season
+            );
+          }
+
+          /*
+           * More than one season exists:
+           * show season navigation first.
+           */
+          if (
+            seasons.length > 1
+          ) {
+            const buttons =
+              seasons.map(
+                season => [
+                  {
+                    text:
+                      `📺 Season ${season.season}`,
+                    callback_data:
+                      create(
+                        "seasonpage",
+                        {
+                          baseTitle:
+                            discovered.baseTitle,
+                          season:
+                            season.season,
+                          title:
+                            season.title,
+                          url:
+                            season.url
+                        }
+                      )
+                  }
+                ]
+              );
+
+            buttons.push([
+              {
+                text:
+                  "🔎 Search Again",
+                callback_data:
+                  "home:search"
+              },
+              {
+                text:
+                  "🏠 Home",
+                callback_data:
+                  "home:menu"
+              }
+            ]);
+
+            await bot.deleteMessage(
+              chatId,
+              status.message_id
+            ).catch(() => {});
+
+            const caption =
+              `📺 ${discovered.baseTitle}\n\n` +
+              `${seasons.length} season(s) found.\n` +
+              "Choose a season:";
+
+            if (series.poster) {
+              await bot.sendPhoto(
+                chatId,
+                series.poster,
+                {
+                  caption,
+                  reply_markup: {
+                    inline_keyboard:
+                      buttons
+                  }
+                }
+              );
+            } else {
+              await bot.sendMessage(
+                chatId,
+                caption,
+                {
+                  reply_markup: {
+                    inline_keyboard:
+                      buttons
+                  }
+                }
+              );
+            }
+
+            return;
+          }
+
+          /*
+           * Only one season was found.
+           * Go directly to its episodes.
+           */
+          const buttons = [];
 
           for (
             const episode
             of series.episodes
           ) {
-            const season =
-              episode.season ||
-              1;
-
-            if (
-              !grouped.has(
-                season
-              )
-            ) {
-              grouped.set(
-                season,
-                []
-              );
-            }
-
-            grouped
-              .get(season)
-              .push(episode);
-          }
-
-          const buttons = [];
-
-          /*
-           * If multiple seasons are actually
-           * present on one page, show season
-           * buttons first.
-           */
-          if (
-            grouped.size > 1
-          ) {
-            for (
-              const [
-                season,
-                episodes
-              ]
-              of grouped
-            ) {
-              buttons.push([
-                {
-                  text:
-                    `📺 Season ${season}`,
-                  callback_data:
-                    create(
-                      "season",
-                      {
-                        title:
-                          cleanTitle(
-                            series.title
-                          ),
-                        poster:
-                          series.poster,
-                        season,
-                        episodes
-                      }
-                    )
-                }
-              ]);
-            }
-
-          } else {
-            const episodes =
-              [...grouped.values()][0];
-
-            for (
-              const episode
-              of episodes
-            ) {
-              buttons.push([
-                {
-                  text:
-                    `▶️ ${episode.label}`,
-                  callback_data:
-                    create(
-                      "episode",
-                      {
-                        title:
-                          cleanTitle(
-                            series.title
-                          ),
-                        label:
-                          episode.label,
-                        downloadUrl:
-                          episode.downloadUrl
-                      }
-                    )
-                }
-              ]);
-            }
+            buttons.push([
+              {
+                text:
+                  `▶️ ${episode.label}`,
+                callback_data:
+                  create(
+                    "episode",
+                    {
+                      title:
+                        cleanTitle(
+                          series.title
+                        ),
+                      label:
+                        episode.label,
+                      downloadUrl:
+                        episode.downloadUrl
+                    }
+                  )
+              }
+            ]);
           }
 
           buttons.push([
@@ -911,12 +1000,8 @@ bot.on(
 
           const caption =
             `📺 ${cleanTitle(series.title)}\n\n` +
-            `${series.episodes.length} episode(s) found.` +
-            (
-              grouped.size > 1
-                ? "\nChoose a season:"
-                : "\nChoose an episode:"
-            );
+            `${series.episodes.length} episode(s) found.\n` +
+            "Choose an episode:";
 
           if (series.poster) {
             await bot.sendPhoto(
@@ -1048,6 +1133,247 @@ bot.on(
           }
         );
       }
+
+      return;
+    }
+
+    /*
+     * CROSS-PAGE SEASON SELECTED
+     */
+    if (
+      data.startsWith(
+        "seasonpage:"
+      )
+    ) {
+      const item =
+        get(
+          data,
+          "seasonpage"
+        );
+
+      if (!item) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "This season selection expired."
+          }
+        );
+
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id
+      );
+
+      const status =
+        await bot.sendMessage(
+          chatId,
+          `Loading Season ${item.season}...`
+        );
+
+      try {
+        const season =
+          await parseSeriesPage(
+            item.url
+          );
+
+        if (
+          !season.episodes.length
+        ) {
+          throw new Error(
+            "No episodes found"
+          );
+        }
+
+        const buttons = [];
+
+        for (
+          const episode
+          of season.episodes
+        ) {
+          buttons.push([
+            {
+              text:
+                `▶️ ${episode.label}`,
+              callback_data:
+                create(
+                  "episode",
+                  {
+                    title:
+                      item.baseTitle,
+                    label:
+                      episode.label,
+                    downloadUrl:
+                      episode.downloadUrl
+                  }
+                )
+            }
+          ]);
+        }
+
+        /*
+         * Rediscover seasons so the user can
+         * move between them after opening one.
+         */
+        let allSeasons = [];
+
+        try {
+          const discovery =
+            await discoverSeasons(
+              item.title
+            );
+
+          allSeasons =
+            discovery.seasons;
+        } catch (error) {
+          console.error(
+            "SEASON NAV ERROR:",
+            error.message
+          );
+        }
+
+        if (
+          allSeasons.length > 1
+        ) {
+          buttons.push([
+            {
+              text:
+                "📚 All Seasons",
+              callback_data:
+                create(
+                  "allseasons",
+                  {
+                    baseTitle:
+                      item.baseTitle,
+                    seasons:
+                      allSeasons
+                  }
+                )
+            }
+          ]);
+        }
+
+        buttons.push([
+          {
+            text:
+              "🏠 Home",
+            callback_data:
+              "home:menu"
+          }
+        ]);
+
+        await bot.editMessageText(
+          `📺 ${item.baseTitle}\n` +
+          `Season ${item.season}\n\n` +
+          `${season.episodes.length} episode(s)\n` +
+          "Choose an episode:",
+          {
+            chat_id:
+              chatId,
+            message_id:
+              status.message_id,
+            reply_markup: {
+              inline_keyboard:
+                buttons
+            }
+          }
+        );
+
+      } catch (error) {
+        console.error(
+          "SEASON PAGE ERROR:",
+          error
+        );
+
+        await bot.editMessageText(
+          `❌ Season ${item.season} could not be loaded.`,
+          {
+            chat_id:
+              chatId,
+            message_id:
+              status.message_id
+          }
+        );
+      }
+
+      return;
+    }
+
+    /*
+     * ALL SEASONS
+     */
+    if (
+      data.startsWith(
+        "allseasons:"
+      )
+    ) {
+      const item =
+        get(
+          data,
+          "allseasons"
+        );
+
+      if (!item) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "This season list expired."
+          }
+        );
+
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id
+      );
+
+      const buttons =
+        item.seasons.map(
+          season => [
+            {
+              text:
+                `📺 Season ${season.season}`,
+              callback_data:
+                create(
+                  "seasonpage",
+                  {
+                    baseTitle:
+                      item.baseTitle,
+                    season:
+                      season.season,
+                    title:
+                      season.title,
+                    url:
+                      season.url
+                  }
+                )
+            }
+          ]
+        );
+
+      buttons.push([
+        {
+          text:
+            "🏠 Home",
+          callback_data:
+            "home:menu"
+        }
+      ]);
+
+      await bot.sendMessage(
+        chatId,
+        `📺 ${item.baseTitle}\n\nChoose a season:`,
+        {
+          reply_markup: {
+            inline_keyboard:
+              buttons
+          }
+        }
+      );
 
       return;
     }
