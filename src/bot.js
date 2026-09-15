@@ -37,6 +37,18 @@ const {
 } = require("./core/catalog-ui");
 
 const {
+  homeText: decoratedHomeText,
+  homeKeyboard: decoratedHomeKeyboard,
+  movieCaption,
+  seriesCaption,
+  downloadMessage,
+  downloadKeyboard,
+  loadingText,
+  errorText,
+  helpText
+} = require("./core/telegram-ui");
+
+const {
   create,
   get
 } = require("./core/callbacks");
@@ -83,23 +95,34 @@ function homeKeyboard() {
       [
         {
           text: "🔎 Search",
-          callback_data: "home:search"
+          callback_data:
+            "home:search"
         }
       ],
       [
         {
           text: "🎬 Latest Movies",
-          callback_data: "latest:movie:1"
+          callback_data:
+            "latest:movie:1"
         },
         {
           text: "📺 Latest Series",
-          callback_data: "latest:series:1"
+          callback_data:
+            "latest:series:1"
         }
       ],
       [
         {
           text: "🇰🇷 K-Drama",
-          callback_data: "latest:drama:1"
+          callback_data:
+            "latest:drama:1"
+        }
+      ],
+      [
+        {
+          text: "❓ Help",
+          callback_data:
+            "home:help"
         }
       ]
     ]
@@ -109,8 +132,7 @@ function homeKeyboard() {
 async function showHome(chatId) {
   await bot.sendMessage(
     chatId,
-    "🎬 TheNkiri\n\n" +
-    "Search for a title or browse the latest releases.",
+    decoratedHomeText(),
     {
       reply_markup:
         homeKeyboard()
@@ -421,7 +443,7 @@ bot.onText(
 
       await bot.sendMessage(
         chatId,
-        "🔎 Send me the movie or series name."
+        "🔎 Search TheNkiri\n\nSend me the name of a movie, TV series or K-Drama."
       );
 
       return;
@@ -504,7 +526,7 @@ bot.on(
     const status =
       await bot.sendMessage(
         chatId,
-        `🔎 Searching for "${text}"...`
+        `🔎 Searching TheNkiri for "${text}"…`
       );
 
     try {
@@ -629,8 +651,7 @@ bot.on(
       );
 
       await bot.editMessageText(
-        "🎬 TheNkiri\n\n" +
-        "Search for a title or browse the latest releases.",
+        decoratedHomeText(),
         {
           chat_id:
             chatId,
@@ -638,6 +659,44 @@ bot.on(
             query.message.message_id,
           reply_markup:
             homeKeyboard()
+        }
+      );
+
+      return;
+    }
+
+    if (
+      data === "home:help"
+    ) {
+      await bot.answerCallbackQuery(
+        query.id
+      );
+
+      await bot.editMessageText(
+        helpText(),
+        {
+          chat_id:
+            chatId,
+          message_id:
+            query.message.message_id,
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: "🔎 Search",
+                  callback_data:
+                    "home:search"
+                }
+              ],
+              [
+                {
+                  text: "🏠 Home",
+                  callback_data:
+                    "home:menu"
+                }
+              ]
+            ]
+          }
         }
       );
 
@@ -657,7 +716,7 @@ bot.on(
 
       await bot.sendMessage(
         chatId,
-        "🔎 Send me the movie or series name."
+        "🔎 Search TheNkiri\n\nSend me the name of a movie, TV series or K-Drama."
       );
 
       return;
