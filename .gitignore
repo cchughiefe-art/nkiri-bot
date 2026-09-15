@@ -15,3 +15,5 @@ node_modules/
 # Runtime data
 data/store.json
 data/store.json.tmp
+data/media-map.json
+data/media-map-checkpoint.json
