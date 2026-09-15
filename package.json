@@ -1,0 +1,16 @@
+{
+  "name": "nkiri-telegram-bot",
+  "version": "1.0.0",
+  "description": "Telegram download bot for TheNkiri",
+  "main": "src/test.js",
+  "scripts": {
+    "test": "node src/test.js",
+    "start": "node src/bot.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.0.0",
+    "dotenv": "^17.4.2",
+    "node-telegram-bot-api": "^0.66.0",
+    "undici": "^6.28.1"
+  }
+}
