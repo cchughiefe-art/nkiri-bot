@@ -971,7 +971,11 @@ bot.on(
                       label:
                         episode.label,
                       downloadUrl:
-                        episode.downloadUrl
+                        episode.downloadUrl,
+                      direct:
+                        episode.direct === true,
+                      sourceType:
+                        episode.sourceType || null
                     }
                   )
               }
@@ -1515,9 +1519,18 @@ bot.on(
 
       try {
         const resolved =
-          await resolveDownloadWella(
-            item.downloadUrl
-          );
+          item.direct
+            ? {
+                host:
+                  "nkiserv",
+                pageUrl:
+                  item.downloadUrl,
+                directUrl:
+                  item.downloadUrl
+              }
+            : await resolveDownloadWella(
+                item.downloadUrl
+              );
 
         incrementStat(
           "downloads"

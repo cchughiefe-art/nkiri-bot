@@ -12,7 +12,8 @@ const HEADERS = {
     "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/140 Safari/537.36",
   "accept":
     "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-  "accept-language": "en-US,en;q=0.9"
+  "accept-language":
+    "en-US,en;q=0.9"
 };
 
 function clean(value) {
@@ -21,21 +22,42 @@ function clean(value) {
     .trim();
 }
 
-function detectEpisode(text, href, index) {
+function detectEpisode(
+  text,
+  href,
+  index
+) {
   const combined =
     `${text} ${href}`;
 
+  /*
+   * Handles:
+   * S02E01
+   * S01E08
+   * Season 2 Episode 1
+   */
   const seasonEpisode =
     combined.match(
       /\bS(?:eason)?\s*0?(\d{1,2})\s*E(?:pisode)?\s*0?(\d{1,3})\b/i
     );
 
   if (seasonEpisode) {
+    const season =
+      Number(
+        seasonEpisode[1]
+      );
+
+    const episode =
+      Number(
+        seasonEpisode[2]
+      );
+
     return {
-      season: Number(seasonEpisode[1]),
-      episode: Number(seasonEpisode[2]),
+      season,
+      episode,
       label:
-        `S${String(seasonEpisode[1]).padStart(2, "0")}E${String(seasonEpisode[2]).padStart(2, "0")}`
+        `S${String(season).padStart(2, "0")}` +
+        `E${String(episode).padStart(2, "0")}`
     };
   }
 
@@ -47,25 +69,88 @@ function detectEpisode(text, href, index) {
   if (episode) {
     return {
       season: null,
-      episode: Number(episode[1]),
-      label: `Episode ${episode[1]}`
+      episode:
+        Number(
+          episode[1]
+        ),
+      label:
+        `Episode ${Number(episode[1])}`
     };
   }
 
   return {
     season: null,
-    episode: index + 1,
-    label: text || `Download ${index + 1}`
+    episode:
+      index + 1,
+    label:
+      text ||
+      `Episode ${index + 1}`
   };
+}
+
+function classifyDownload(url) {
+  let parsed;
+
+  try {
+    parsed =
+      new URL(url);
+  } catch {
+    return null;
+  }
+
+  const hostname =
+    parsed.hostname
+      .toLowerCase();
+
+  if (
+    hostname === "downloadwella.com" ||
+    hostname.endsWith(
+      ".downloadwella.com"
+    )
+  ) {
+    return {
+      type: "downloadwella",
+      direct: false
+    };
+  }
+
+  /*
+   * Older TheNkiri series pages can point
+   * directly at media on nkiserv.com.
+   */
+  const isNkiriServer =
+    hostname === "nkiserv.com" ||
+    hostname.endsWith(
+      ".nkiserv.com"
+    );
+
+  const isMedia =
+    /\.(?:mkv|mp4|avi|mov)(?:$|[?#])/i
+      .test(url);
+
+  if (
+    isNkiriServer &&
+    isMedia
+  ) {
+    return {
+      type: "direct",
+      direct: true
+    };
+  }
+
+  return null;
 }
 
 async function parseSeriesPage(url) {
   const response =
-    await fetch(url, {
-      dispatcher,
-      headers: HEADERS,
-      redirect: "follow"
-    });
+    await fetch(
+      url,
+      {
+        dispatcher,
+        headers: HEADERS,
+        redirect: "follow"
+      }
+    );
 
   if (!response.ok) {
     throw new Error(
@@ -80,67 +165,101 @@ async function parseSeriesPage(url) {
     cheerio.load(html);
 
   const title =
-    clean($("h1").first().text()) ||
-    clean($("title").text());
+    clean(
+      $("h1")
+        .first()
+        .text()
+    ) ||
+    clean(
+      $("title")
+        .text()
+    );
 
   const poster =
     $('meta[property="og:image"]')
       .attr("content") ||
-    $("article img").first().attr("src") ||
+    $("article img")
+      .first()
+      .attr("src") ||
     null;
 
   const downloads = [];
-  const seen = new Set();
+  const seen =
+    new Set();
 
-  $("a").each((_, element) => {
-    const href =
-      $(element).attr("href");
+  $("a").each(
+    (_, element) => {
+      const href =
+        $(element)
+          .attr("href");
 
-    if (
-      !href ||
-      !href.includes("downloadwella.com")
-    ) {
-      return;
+      if (!href) return;
+
+      let downloadUrl;
+
+      try {
+        downloadUrl =
+          new URL(
+            href,
+            response.url
+          ).href;
+      } catch {
+        return;
+      }
+
+      const classification =
+        classifyDownload(
+          downloadUrl
+        );
+
+      if (!classification) {
+        return;
+      }
+
+      if (
+        seen.has(
+          downloadUrl
+        )
+      ) {
+        return;
+      }
+
+      seen.add(
+        downloadUrl
+      );
+
+      downloads.push({
+        text:
+          clean(
+            $(element)
+              .text()
+          ),
+        downloadUrl,
+        direct:
+          classification.direct,
+        sourceType:
+          classification.type
+      });
     }
-
-    let downloadUrl;
-
-    try {
-      downloadUrl =
-        new URL(href, response.url).href;
-    } catch {
-      return;
-    }
-
-    if (seen.has(downloadUrl)) {
-      return;
-    }
-
-    seen.add(downloadUrl);
-
-    const text =
-      clean($(element).text());
-
-    downloads.push({
-      text,
-      downloadUrl
-    });
-  });
+  );
 
   const episodes =
-    downloads.map((item, index) => ({
-      ...item,
-      ...detectEpisode(
-        item.text,
-        item.downloadUrl,
-        index
-      )
-    }));
+    downloads.map(
+      (item, index) => ({
+        ...item,
+        ...detectEpisode(
+          item.text,
+          item.downloadUrl,
+          index
+        )
+      })
+    );
 
   return {
     title,
     poster,
-    isSeries: episodes.length > 1,
+    isSeries:
+      episodes.length > 1,
     episodes
   };
 }
