@@ -23,9 +23,8 @@ const {
 } = require("./nkiri/seasons");
 
 const {
-  resolveDownloadWella,
-  resolveWithFallback
-} = require("./resolvers/downloadwella");
+  resolveDownload
+} = require("./resolvers");
 
 const {
   cleanTitle
@@ -1210,7 +1209,11 @@ bot.on(
                     label:
                       episode.label,
                     downloadUrl:
-                      episode.downloadUrl
+                      episode.downloadUrl,
+                    direct:
+                      episode.direct === true,
+                    sourceType:
+                      episode.sourceType || null
                   }
                 )
             }
@@ -1427,7 +1430,11 @@ bot.on(
                     label:
                       episode.label,
                     downloadUrl:
-                      episode.downloadUrl
+                      episode.downloadUrl,
+                    direct:
+                      episode.direct === true,
+                    sourceType:
+                      episode.sourceType || null
                   }
                 )
             }
@@ -1519,18 +1526,9 @@ bot.on(
 
       try {
         const resolved =
-          item.direct
-            ? {
-                host:
-                  "nkiserv",
-                pageUrl:
-                  item.downloadUrl,
-                directUrl:
-                  item.downloadUrl
-              }
-            : await resolveDownloadWella(
-                item.downloadUrl
-              );
+          await resolveDownload(
+            item.downloadUrl
+          );
 
         incrementStat(
           "downloads"
@@ -1690,7 +1688,7 @@ bot.on(
         }
 
         const resolved =
-          await resolveWithFallback(
+          await resolveDownload(
             movie.downloadUrls?.length
               ? movie.downloadUrls
               : movie.downloadUrl

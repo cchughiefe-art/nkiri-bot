@@ -1,5 +1,6 @@
 const cheerio = require("cheerio");
 const { fetch, Agent } = require("undici");
+const { classifyDownload } = require("../resolvers");
 
 const dispatcher = new Agent({
   connect: { timeout: 30000 },
@@ -88,58 +89,7 @@ function detectEpisode(
   };
 }
 
-function classifyDownload(url) {
-  let parsed;
 
-  try {
-    parsed =
-      new URL(url);
-  } catch {
-    return null;
-  }
-
-  const hostname =
-    parsed.hostname
-      .toLowerCase();
-
-  if (
-    hostname === "downloadwella.com" ||
-    hostname.endsWith(
-      ".downloadwella.com"
-    )
-  ) {
-    return {
-      type: "downloadwella",
-      direct: false
-    };
-  }
-
-  /*
-   * Older TheNkiri series pages can point
-   * directly at media on nkiserv.com.
-   */
-  const isNkiriServer =
-    hostname === "nkiserv.com" ||
-    hostname.endsWith(
-      ".nkiserv.com"
-    );
-
-  const isMedia =
-    /\.(?:mkv|mp4|avi|mov)(?:$|[?#])/i
-      .test(url);
-
-  if (
-    isNkiriServer &&
-    isMedia
-  ) {
-    return {
-      type: "direct",
-      direct: true
-    };
-  }
-
-  return null;
-}
 
 async function parseSeriesPage(url) {
   const response =
@@ -207,14 +157,20 @@ async function parseSeriesPage(url) {
         return;
       }
 
-      const classification =
+      const sourceType =
         classifyDownload(
           downloadUrl
         );
 
-      if (!classification) {
+      if (
+        !sourceType ||
+        sourceType === "external"
+      ) {
         return;
       }
+
+      const direct =
+        sourceType === "direct";
 
       if (
         seen.has(
@@ -236,9 +192,9 @@ async function parseSeriesPage(url) {
           ),
         downloadUrl,
         direct:
-          classification.direct,
+          direct,
         sourceType:
-          classification.type
+          sourceType
       });
     }
   );
