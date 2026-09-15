@@ -158,6 +158,77 @@ async function resolveDownloadWella(url) {
   };
 }
 
+
+async function resolveWithFallback(urls) {
+  const candidates =
+    [...new Set(
+      (
+        Array.isArray(urls)
+          ? urls
+          : [urls]
+      ).filter(Boolean)
+    )];
+
+  if (!candidates.length) {
+    throw new Error(
+      "No download links available"
+    );
+  }
+
+  const failures = [];
+
+  for (
+    let index = 0;
+    index < candidates.length;
+    index++
+  ) {
+    const url =
+      candidates[index];
+
+    console.log(
+      `Trying download mirror ${index + 1}/${candidates.length}...`
+    );
+
+    try {
+      const resolved =
+        await resolveDownloadWella(
+          url
+        );
+
+      return {
+        ...resolved,
+        mirror:
+          index + 1,
+        mirrors:
+          candidates.length
+      };
+
+    } catch (error) {
+      failures.push({
+        url,
+        error:
+          error.message
+      });
+
+      console.log(
+        `Mirror ${index + 1} failed:`,
+        error.message
+      );
+    }
+  }
+
+  const error =
+    new Error(
+      `All ${candidates.length} download mirror(s) failed`
+    );
+
+  error.failures =
+    failures;
+
+  throw error;
+}
+
 module.exports = {
-  resolveDownloadWella
+  resolveDownloadWella,
+  resolveWithFallback
 };

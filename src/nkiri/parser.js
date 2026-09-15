@@ -73,30 +73,65 @@ async function parseNkiriPage(url) {
     $("h1").first().text().trim() ||
     $("title").text().trim();
 
-  let downloadUrl = null;
+  const downloadUrls = [];
+  const seenDownloads = new Set();
 
   $("a").each((_, element) => {
     const href = $(element).attr("href");
+
     const text = $(element)
       .text()
+      .replace(/\s+/g, " ")
       .trim()
       .toLowerCase();
 
+    if (!href) return;
+
+    let resolvedUrl;
+
+    try {
+      resolvedUrl =
+        new URL(
+          href,
+          response.url
+        ).href;
+    } catch {
+      return;
+    }
+
+    const isDownload =
+      resolvedUrl.includes(
+        "downloadwella.com"
+      ) ||
+      text.includes(
+        "download movie"
+      );
+
     if (
-      href &&
-      (
-        href.includes("downloadwella.com") ||
-        text.includes("download movie")
+      !isDownload ||
+      seenDownloads.has(
+        resolvedUrl
       )
     ) {
-      downloadUrl = new URL(
-        href,
-        response.url
-      ).href;
-
-      return false;
+      return;
     }
+
+    seenDownloads.add(
+      resolvedUrl
+    );
+
+    downloadUrls.push(
+      resolvedUrl
+    );
   });
+
+  /*
+   * Keep downloadUrl for backwards
+   * compatibility with existing code.
+   */
+  const downloadUrl =
+    downloadUrls[0] ||
+    null;
 
   const pageText = $.text();
 
@@ -113,7 +148,8 @@ async function parseNkiriPage(url) {
     title,
     size: sizeMatch ? sizeMatch[1] : null,
     poster,
-    downloadUrl
+    downloadUrl,
+    downloadUrls
   };
 }
 

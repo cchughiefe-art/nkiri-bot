@@ -18,7 +18,8 @@ const {
 } = require("./nkiri/series");
 
 const {
-  resolveDownloadWella
+  resolveDownloadWella,
+  resolveWithFallback
 } = require("./resolvers/downloadwella");
 
 const {
@@ -1350,8 +1351,10 @@ bot.on(
         }
 
         const resolved =
-          await resolveDownloadWella(
-            movie.downloadUrl
+          await resolveWithFallback(
+            movie.downloadUrls?.length
+              ? movie.downloadUrls
+              : movie.downloadUrl
           );
 
         incrementStat(
