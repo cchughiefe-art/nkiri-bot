@@ -3,13 +3,14 @@ require("dotenv").config();
 const TelegramBot = require("node-telegram-bot-api");
 const http = require("http");
 
-const {
-  parseNkiriPage
-} = require("./nkiri/parser");
+const { searchNkiri } =
+  require("./nkiri/search");
 
-const {
-  resolveDownloadWella
-} = require("./resolvers/downloadwella");
+const { parseNkiriPage } =
+  require("./nkiri/parser");
+
+const { resolveDownloadWella } =
+  require("./resolvers/downloadwella");
 
 const token = process.env.TELEGRAM_BOT_TOKEN;
 
@@ -21,189 +22,418 @@ const bot = new TelegramBot(token, {
   polling: true
 });
 
-const TEST_MOVIE =
-  "https://thenkiri.com/awareness-2023-download-spanish-movie/";
+/*
+ * Temporary result cache.
+ *
+ * Telegram callback_data is limited in size,
+ * so we store URLs here instead of putting
+ * complete URLs inside buttons.
+ */
+const searches = new Map();
+
+function makeId() {
+  return Math.random()
+    .toString(36)
+    .slice(2, 10);
+}
 
 bot.onText(/\/start/, async msg => {
   await bot.sendMessage(
     msg.chat.id,
-    "Welcome to TheNkiri Movie Bot.\n\nSend /awareness to test movie downloads."
+    "Welcome to TheNkiri Movie Bot.\n\n" +
+    "Send me the name of a movie or TV series.\n\n" +
+    "Example:\nAvatar"
   );
 });
 
-bot.onText(/\/awareness/, async msg => {
+/*
+ * Handle normal text searches.
+ */
+bot.on("message", async msg => {
   const chatId = msg.chat.id;
 
-  try {
-    const movie =
-      await parseNkiriPage(TEST_MOVIE);
+  if (!msg.text) return;
 
-    const caption =
-      `🎬 ${movie.title}\n` +
-      `📦 ${movie.size || "Unknown size"}\n\n` +
-      `Tap below to generate your download link.`;
+  const query = msg.text.trim();
 
-    const options = {
-      caption,
-
-      reply_markup: {
-        inline_keyboard: [
-          [
-            {
-              text: "Download Movie",
-              callback_data: "download_awareness"
-            }
-          ]
-        ]
-      }
-    };
-
-    if (movie.poster) {
-      await bot.sendPhoto(
-        chatId,
-        movie.poster,
-        options
-      );
-    } else {
-      await bot.sendMessage(
-        chatId,
-        caption,
-        {
-          reply_markup:
-            options.reply_markup
-        }
-      );
-    }
-
-  } catch (error) {
-    console.error("MOVIE ERROR:", error);
-
-    await bot.sendMessage(
-      chatId,
-      "I couldn't load this movie. Please try again."
-    );
-  }
-});
-
-bot.on("callback_query", async query => {
-
-  if (query.data !== "download_awareness") {
+  /*
+   * Commands are handled separately.
+   */
+  if (query.startsWith("/")) {
     return;
   }
 
-  const chatId = query.message.chat.id;
+  if (query.length < 2) {
+    await bot.sendMessage(
+      chatId,
+      "Please enter a movie or series name."
+    );
+    return;
+  }
+
+  const status =
+    await bot.sendMessage(
+      chatId,
+      `Searching TheNkiri for "${query}"...`
+    );
 
   try {
-    await bot.answerCallbackQuery(
-      query.id,
-      {
-        text: "Generating download link..."
-      }
-    );
+    const results =
+      await searchNkiri(query);
 
-    const status =
-      await bot.sendMessage(
-        chatId,
-        "Generating a fresh download link..."
+    if (!results.length) {
+      await bot.editMessageText(
+        `No results found for "${query}".`,
+        {
+          chat_id: chatId,
+          message_id: status.message_id
+        }
       );
-
-    /*
-     * Fetch the movie page again because
-     * TheNkiri/DownloadWella links can change.
-     */
-    const movie =
-      await parseNkiriPage(TEST_MOVIE);
-
-    if (!movie.downloadUrl) {
-      throw new Error(
-        "No DownloadWella link found"
-      );
+      return;
     }
 
-    console.log(
-      "Resolving:",
-      movie.downloadUrl
-    );
+    const keyboard = [];
 
-    const resolved =
-      await resolveDownloadWella(
-        movie.downloadUrl
-      );
+    for (const result of results) {
+      const id = makeId();
 
-    if (!resolved.directUrl) {
-      throw new Error(
-        "Direct download URL not generated"
-      );
+      searches.set(id, {
+        url: result.url,
+        title: result.title,
+        created: Date.now()
+      });
+
+      keyboard.push([
+        {
+          text:
+            result.title.length > 55
+              ? result.title.slice(0, 52) + "..."
+              : result.title,
+
+          callback_data: `movie:${id}`
+        }
+      ]);
     }
-
-    console.log(
-      "Fresh direct URL generated."
-    );
 
     await bot.editMessageText(
-      `🎬 ${movie.title}\n` +
-      `📦 ${movie.size || "Unknown size"}\n\n` +
-      `Your download link is ready.\n\n` +
-      `The link may expire, so start the download now.`,
+      `Results for "${query}"\n\n` +
+      `Choose a movie or series:`,
       {
         chat_id: chatId,
         message_id: status.message_id,
 
         reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: "⬇️ Download Movie",
-                url: resolved.directUrl
-              }
-            ]
-          ]
+          inline_keyboard: keyboard
         }
       }
     );
 
   } catch (error) {
-
     console.error(
-      "DOWNLOAD LINK ERROR:",
+      "SEARCH ERROR:",
       error
     );
 
-    try {
-      await bot.sendMessage(
-        chatId,
-        "I couldn't generate the download link. Please try again."
-      );
-    } catch {}
+    await bot.editMessageText(
+      "Search failed. Please try again.",
+      {
+        chat_id: chatId,
+        message_id: status.message_id
+      }
+    );
   }
 });
 
+
+/*
+ * Handle buttons.
+ */
 bot.on(
-  "polling_error",
-  error => {
-    console.error(
-      "Telegram polling error:",
-      error.message
-    );
+  "callback_query",
+  async query => {
+
+    const data =
+      query.data || "";
+
+    const chatId =
+      query.message.chat.id;
+
+    /*
+     * User selected a search result.
+     */
+    if (data.startsWith("movie:")) {
+
+      const id =
+        data.slice(6);
+
+      const item =
+        searches.get(id);
+
+      if (!item) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "This search expired. Search again."
+          }
+        );
+
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id
+      );
+
+      const status =
+        await bot.sendMessage(
+          chatId,
+          "Loading movie information..."
+        );
+
+      try {
+        const movie =
+          await parseNkiriPage(
+            item.url
+          );
+
+        /*
+         * Keep the selected page for
+         * the download button.
+         */
+        const downloadId =
+          makeId();
+
+        searches.set(
+          downloadId,
+          {
+            url: item.url,
+            title: movie.title,
+            created: Date.now()
+          }
+        );
+
+        const caption =
+          `🎬 ${movie.title}\n` +
+          `📦 ${movie.size || "Size unavailable"}\n\n` +
+          `Tap below to generate a fresh download link.`;
+
+        const keyboard = {
+          inline_keyboard: [
+            [
+              {
+                text:
+                  "⬇️ Download Movie",
+
+                callback_data:
+                  `download:${downloadId}`
+              }
+            ]
+          ]
+        };
+
+        await bot.deleteMessage(
+          chatId,
+          status.message_id
+        ).catch(() => {});
+
+        if (movie.poster) {
+
+          await bot.sendPhoto(
+            chatId,
+            movie.poster,
+            {
+              caption,
+              reply_markup: keyboard
+            }
+          );
+
+        } else {
+
+          await bot.sendMessage(
+            chatId,
+            caption,
+            {
+              reply_markup: keyboard
+            }
+          );
+        }
+
+      } catch (error) {
+
+        console.error(
+          "DETAIL ERROR:",
+          error
+        );
+
+        await bot.editMessageText(
+          "I couldn't load this title.",
+          {
+            chat_id: chatId,
+            message_id:
+              status.message_id
+          }
+        );
+      }
+
+      return;
+    }
+
+
+    /*
+     * Generate the temporary direct
+     * browser download URL.
+     */
+    if (data.startsWith("download:")) {
+
+      const id =
+        data.slice(9);
+
+      const item =
+        searches.get(id);
+
+      if (!item) {
+
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "This download request expired. Search again."
+          }
+        );
+
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id,
+        {
+          text:
+            "Generating download link..."
+        }
+      );
+
+      const status =
+        await bot.sendMessage(
+          chatId,
+          "Generating a fresh download link..."
+        );
+
+      try {
+
+        const movie =
+          await parseNkiriPage(
+            item.url
+          );
+
+        if (!movie.downloadUrl) {
+          throw new Error(
+            "No download link found on title page"
+          );
+        }
+
+        console.log(
+          "Resolving:",
+          movie.downloadUrl
+        );
+
+        const resolved =
+          await resolveDownloadWella(
+            movie.downloadUrl
+          );
+
+        console.log(
+          "Fresh direct URL generated."
+        );
+
+        await bot.editMessageText(
+          `🎬 ${movie.title}\n` +
+          `📦 ${movie.size || "Size unavailable"}\n\n` +
+          `Your download link is ready.\n` +
+          `The link may expire, so start the download now.`,
+          {
+            chat_id: chatId,
+            message_id:
+              status.message_id,
+
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text:
+                      "⬇️ Download Now",
+
+                    url:
+                      resolved.directUrl
+                  }
+                ]
+              ]
+            }
+          }
+        );
+
+      } catch (error) {
+
+        console.error(
+          "DOWNLOAD ERROR:",
+          error
+        );
+
+        await bot.editMessageText(
+          "I couldn't generate the download link. Please try again.",
+          {
+            chat_id: chatId,
+            message_id:
+              status.message_id
+          }
+        );
+      }
+
+      return;
+    }
   }
 );
 
 
 /*
- * Render health server.
- * Render supplies PORT automatically.
+ * Remove old callback entries so memory
+ * doesn't grow forever.
  */
+setInterval(() => {
 
+  const cutoff =
+    Date.now() -
+    60 * 60 * 1000;
+
+  for (
+    const [id, item]
+    of searches
+  ) {
+
+    if (item.created < cutoff) {
+      searches.delete(id);
+    }
+  }
+
+}, 10 * 60 * 1000);
+
+
+/*
+ * Render health endpoint.
+ */
 const PORT =
   process.env.PORT || 8080;
 
 http
   .createServer((req, res) => {
 
-    res.writeHead(200, {
-      "Content-Type":
-        "text/plain"
-    });
+    res.writeHead(
+      200,
+      {
+        "Content-Type":
+          "text/plain"
+      }
+    );
 
     res.end(
       "TheNkiri Telegram Bot is running"
@@ -219,7 +449,6 @@ http
       );
     }
   );
-
 
 console.log(
   "TheNkiri Telegram bot is running..."
