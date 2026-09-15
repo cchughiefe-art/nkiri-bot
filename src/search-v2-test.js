@@ -76,6 +76,26 @@ const {
   );
 
   console.log(
+    "\nLATEST K-DRAMA\n"
+  );
+
+  const dramas =
+    await getLatest(
+      "drama",
+      {
+        perPage: 5
+      }
+    );
+
+  dramas.results.forEach(
+    item =>
+      console.log(
+        "-",
+        item.cleanTitle
+      )
+  );
+
+  console.log(
     "\nLATEST SERIES\n"
   );
 

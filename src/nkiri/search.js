@@ -293,21 +293,42 @@ async function getLatest(
       )
     );
 
+  /*
+   * TheNkiri exposes separate browsing pages.
+   * Using them is more reliable than trying
+   * to infer sections from the homepage.
+   */
+  let sourceUrl =
+    "https://thenkiri.com/";
+
+  if (type === "movie") {
+    sourceUrl =
+      "https://thenkiri.com/movies-menu/";
+  }
+
+  if (type === "series") {
+    sourceUrl =
+      "https://thenkiri.com/tv-series-menu/";
+  }
+
+  if (type === "drama") {
+    sourceUrl =
+      "https://thenkiri.com/korean-drama-menu/";
+  }
+
   const cacheKey =
-    "latest:homepage";
+    `latest:${type}:${sourceUrl}`;
 
   let results =
     getCache(cacheKey);
 
   if (!results) {
     console.log(
-      "Loading latest TheNkiri posts..."
+      `Loading latest ${type} posts...`
     );
 
     const response =
-      await request(
-        "https://thenkiri.com/"
-      );
+      await request(sourceUrl);
 
     const html =
       await response.text();
@@ -318,6 +339,154 @@ async function getLatest(
         response.url
       );
 
+    /*
+     * Some menu layouts don't wrap every
+     * card in a normal WordPress article.
+     * Extract matching post links directly
+     * as a fallback.
+     */
+    if (!results.length) {
+      const $ =
+        cheerio.load(html);
+
+      const seen =
+        new Set();
+
+      results = [];
+
+      $("a").each((_, element) => {
+        const anchor =
+          $(element);
+
+        const href =
+          anchor.attr("href");
+
+        const title =
+          clean(
+            anchor.text()
+          );
+
+        if (
+          !href ||
+          !title
+        ) {
+          return;
+        }
+
+        let url;
+
+        try {
+          url =
+            new URL(
+              href,
+              response.url
+            ).href;
+        } catch {
+          return;
+        }
+
+        if (
+          !url.startsWith(
+            "https://thenkiri.com/"
+          ) ||
+          seen.has(url)
+        ) {
+          return;
+        }
+
+        const detected =
+          detectType(title);
+
+        if (
+          type === "movie" &&
+          detected !== "movie"
+        ) {
+          return;
+        }
+
+        if (
+          type === "series" &&
+          detected !== "series"
+        ) {
+          return;
+        }
+
+        if (
+          type === "drama" &&
+          !title
+            .toLowerCase()
+            .includes("drama")
+        ) {
+          return;
+        }
+
+        seen.add(url);
+
+        const image =
+          anchor.find("img")
+            .first()
+            .attr("data-src") ||
+          anchor.find("img")
+            .first()
+            .attr("src") ||
+          null;
+
+        results.push({
+          title,
+          cleanTitle:
+            cleanTitle(title),
+          year:
+            extractYear(title),
+          type:
+            type === "drama"
+              ? "series"
+              : detected,
+          url,
+          image
+        });
+      });
+    }
+
+    /*
+     * Filter menu/navigation links that
+     * aren't actual media posts.
+     */
+    results =
+      results.filter(item => {
+        const lower =
+          item.title
+            .toLowerCase();
+
+        if (
+          lower.startsWith("visit ") ||
+          lower === "movies" ||
+          lower === "tv series" ||
+          lower.includes("menu")
+        ) {
+          return false;
+        }
+
+        if (
+          type === "movie"
+        ) {
+          return (
+            item.type === "movie" ||
+            lower.includes("movie")
+          );
+        }
+
+        if (
+          type === "series"
+        ) {
+          return (
+            item.type === "series" ||
+            lower.includes("series")
+          );
+        }
+
+        return true;
+      });
+
     setCache(
       cacheKey,
       results,
@@ -325,27 +494,8 @@ async function getLatest(
     );
   }
 
-  let filtered =
-    results;
-
-  if (type === "series") {
-    filtered =
-      results.filter(
-        item =>
-          item.type === "series"
-      );
-  }
-
-  if (type === "movie") {
-    filtered =
-      results.filter(
-        item =>
-          item.type !== "series"
-      );
-  }
-
   const total =
-    filtered.length;
+    results.length;
 
   const pages =
     Math.max(
@@ -368,7 +518,7 @@ async function getLatest(
   return {
     type,
     results:
-      filtered.slice(
+      results.slice(
         start,
         start + perPage
       ),
