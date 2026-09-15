@@ -31,20 +31,11 @@ const {
 } = require("./core/media");
 
 const {
-  movieText,
-  seriesText,
-  sourceLabel
-} = require("./core/catalog-ui");
-
-const {
   homeText: decoratedHomeText,
-  homeKeyboard: decoratedHomeKeyboard,
   movieCaption,
   seriesCaption,
   downloadMessage,
   downloadKeyboard,
-  loadingText,
-  errorText,
   helpText
 } = require("./core/telegram-ui");
 
@@ -477,7 +468,27 @@ bot.onText(
 
       await bot.sendMessage(
         chatId,
-        "Search failed. Please try again."
+        "⚠️ Search failed. Please try again.",
+        {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: "🔎 Search Again",
+                  callback_data:
+                    "home:search"
+                }
+              ],
+              [
+                {
+                  text: "🏠 Home",
+                  callback_data:
+                    "home:menu"
+                }
+              ]
+            ]
+          }
+        }
       );
     }
   }
@@ -530,88 +541,12 @@ bot.on(
       );
 
     try {
-      const result =
-        await searchNkiri(
-          text,
-          {
-            page: 1,
-            perPage:
-              PAGE_SIZE
-          }
-        );
-
-      if (!result.results.length) {
-        await bot.editMessageText(
-          `No results found for "${text}".\n\n` +
-          "Try another spelling or a shorter title.",
-          {
-            chat_id:
-              chatId,
-            message_id:
-              status.message_id,
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text:
-                      "🔎 Search Again",
-                    callback_data:
-                      "home:search"
-                  }
-                ],
-                [
-                  {
-                    text:
-                      "🏠 Home",
-                    callback_data:
-                      "home:menu"
-                  }
-                ]
-              ]
-            }
-          }
-        );
-
-        return;
-      }
-
-      const previous = null;
-
-      const next =
-        result.hasNext
-          ? create(
-              "searchpage",
-              {
-                query: text,
-                page: 2
-              }
-            )
-          : null;
-
-      await bot.editMessageText(
-        `🔎 Results for "${text}"\n\n` +
-        `${result.total} result(s)` +
-        (
-          result.pages > 1
-            ? ` • Page 1/${result.pages}`
-            : ""
-        ),
-        {
-          chat_id:
-            chatId,
-          message_id:
-            status.message_id,
-          reply_markup:
-            resultKeyboard(
-              result.results,
-              {
-                previous,
-                next
-              }
-            )
-        }
+      await renderSearch(
+        chatId,
+        text,
+        1,
+        status.message_id
       );
-
     } catch (error) {
       console.error(
         "SEARCH ERROR:",
@@ -619,14 +554,34 @@ bot.on(
       );
 
       await bot.editMessageText(
-        "Search failed. Please try again.",
+        "⚠️ Search failed. Please try again.",
         {
           chat_id:
             chatId,
           message_id:
-            status.message_id
+            status.message_id,
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text:
+                    "🔎 Search Again",
+                  callback_data:
+                    "home:search"
+                }
+              ],
+              [
+                {
+                  text:
+                    "🏠 Home",
+                  callback_data:
+                    "home:menu"
+                }
+              ]
+            ]
+          }
         }
-      );
+      ).catch(() => {});
     }
   }
 );
@@ -758,7 +713,27 @@ bot.on(
 
         await bot.sendMessage(
           chatId,
-          "I couldn't load the latest titles."
+          "⚠️ I couldn't load the latest titles.",
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: "🔄 Try Again",
+                    callback_data:
+                      `latest:${type}:${page}`
+                  }
+                ],
+                [
+                  {
+                    text: "🏠 Home",
+                    callback_data:
+                      "home:menu"
+                  }
+                ]
+              ]
+            }
+          }
         );
       }
 
@@ -1764,44 +1739,23 @@ bot.on(
         );
 
         await bot.editMessageText(
-          movieText(movie) +
-          `\n\n🔗 ${sourceLabel(resolved.type)}` +
-          (
-            resolved.external
-              ? "\nContinue on the download provider page."
-              : "\nYour download link is ready."
-          ),
-          {
-            chat_id:
-              chatId,
-            message_id:
-              status.message_id,
-            reply_markup: {
-              inline_keyboard: [
-                [
-                  {
-                    text:
-                      resolved.external
-                        ? "🌐 Continue to Download"
-                        : "⬇️ Download Now",
-                    url:
-                      resolved.directUrl
-                  }
-                ],
-                [
-                  {
-                    text:
-                      "🏠 Home",
-                    callback_data:
-                      "home:menu"
-                  }
-                ]
-              ]
-            }
-          }
-        );
+        downloadMessage(
+          movie,
+          resolved
+        ),
+        {
+          chat_id:
+            chatId,
+          message_id:
+            status.message_id,
+          reply_markup:
+            downloadKeyboard(
+              resolved
+            )
+        }
+      );
 
-      } catch (error) {
+    } catch (error) {
         console.error(
           "DOWNLOAD ERROR:",
           error
