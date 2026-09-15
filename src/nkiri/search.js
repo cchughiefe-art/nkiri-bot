@@ -196,7 +196,7 @@ async function searchNkiri(
       .toLowerCase();
 
   const cacheKey =
-    `search:${normalized}`;
+    `search:${normalized}:all-pages-v3`;
 
   let results =
     getCache(cacheKey);
@@ -207,30 +207,206 @@ async function searchNkiri(
       query
     );
 
-    const response =
-      await request(
-        `https://thenkiri.com/?s=${encodeURIComponent(query)}`
+    const encoded =
+      encodeURIComponent(query);
+
+    const collected = [];
+    const seen = new Set();
+
+    /*
+     * Safety limit.
+     *
+     * TheNkiri normally has only a few
+     * result pages for a specific title.
+     * This prevents a malformed pagination
+     * link from creating an endless crawl.
+     */
+    const MAX_SOURCE_PAGES = 20;
+
+    for (
+      let sourcePage = 1;
+      sourcePage <= MAX_SOURCE_PAGES;
+      sourcePage++
+    ) {
+      const url =
+        sourcePage === 1
+          ? `https://thenkiri.com/?s=${encoded}`
+          : `https://thenkiri.com/page/${sourcePage}/?s=${encoded}`;
+
+      console.log(
+        `TheNkiri search page ${sourcePage}...`
       );
 
-    const html =
-      await response.text();
+      let response;
 
-    results =
-      parsePosts(
-        html,
-        response.url
-      );
+      try {
+        response =
+          await request(url);
+      } catch (error) {
+        /*
+         * A 404/nonexistent page after we
+         * already collected results simply
+         * means pagination has ended.
+         */
+        if (sourcePage > 1) {
+          console.log(
+            `Search pagination ended at page ${sourcePage - 1}`
+          );
+          break;
+        }
 
+        throw error;
+      }
+
+      const html =
+        await response.text();
+
+      const found =
+        parsePosts(
+          html,
+          response.url
+        );
+
+      /*
+       * No posts on a later page means
+       * there is nothing else to crawl.
+       */
+      if (!found.length) {
+        break;
+      }
+
+      let added = 0;
+
+      for (const item of found) {
+        if (seen.has(item.url)) {
+          continue;
+        }
+
+        seen.add(item.url);
+        collected.push(item);
+        added++;
+      }
+
+      /*
+       * WordPress can sometimes redirect an
+       * invalid high page number back to an
+       * earlier page. If everything on this
+       * page was already seen, stop.
+       */
+      if (added === 0) {
+        break;
+      }
+
+      /*
+       * Detect whether a real next search
+       * page exists instead of deliberately
+       * generating a 404 on every search.
+       */
+      const $ =
+        cheerio.load(html);
+
+      const nextHref =
+        $(
+          'a.next.page-numbers, ' +
+          '.nav-links a.next, ' +
+          'a[rel="next"]'
+        )
+          .first()
+          .attr("href");
+
+      if (!nextHref) {
+        /*
+         * Some themes use only numbered
+         * pagination. Look for page N+1.
+         */
+        let hasNextNumber = false;
+
+        $(
+          '.page-numbers a, ' +
+          '.nav-links a'
+        ).each((_, element) => {
+          const href =
+            $(element).attr("href");
+
+          if (!href) return;
+
+          if (
+            href.includes(
+              `/page/${sourcePage + 1}/`
+            )
+          ) {
+            hasNextNumber = true;
+          }
+        });
+
+        if (!hasNextNumber) {
+          break;
+        }
+      }
+    }
+
+    /*
+     * Rank everything returned by TheNkiri first.
+     */
     results =
       rankResults(
         query,
-        results
+        collected
       );
+
+    /*
+     * Remove unrelated WordPress search results when
+     * we have genuine title matches.
+     *
+     * Example:
+     * "Vampire diaries" should keep all Vampire
+     * Diaries seasons but remove Mayfair Witches,
+     * The Originals, Stags, etc.
+     */
+    const queryWords =
+      normalized
+        .replace(/[^a-z0-9]+/g, " ")
+        .split(/\s+/)
+        .filter(word => word.length >= 2);
+
+    if (queryWords.length) {
+      const strongMatches =
+        results.filter(item => {
+          const title =
+            String(
+              item.cleanTitle ||
+              item.title ||
+              ""
+            )
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, " ");
+
+          return queryWords.every(
+            word =>
+              title
+                .split(/\s+/)
+                .includes(word)
+          );
+        });
+
+      /*
+       * Only apply strict filtering when it actually
+       * found something. This preserves fuzzy search
+       * behavior for misspellings/partial searches.
+       */
+      if (strongMatches.length) {
+        results = strongMatches;
+      }
+    }
 
     setCache(
       cacheKey,
       results,
       CACHE_TTL
+    );
+
+    console.log(
+      `TheNkiri search collected ${results.length} unique result(s)`
     );
   }
 

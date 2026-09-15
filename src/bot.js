@@ -10,6 +10,11 @@ const {
 } = require("./nkiri/search");
 
 const {
+  GENRES,
+  discoverGenre
+} = require("./nkiri/discover");
+
+const {
   parseNkiriPage
 } = require("./nkiri/parser");
 
@@ -107,6 +112,13 @@ function homeKeyboard() {
           text: "🇰🇷 K-Drama",
           callback_data:
             "latest:drama:1"
+        }
+      ],
+      [
+        {
+          text: "🧭 Discover",
+          callback_data:
+            "discover:menu"
         }
       ],
       [
@@ -409,6 +421,138 @@ async function renderLatest(
   }
 }
 
+function genreKeyboard() {
+  const keys =
+    Object.entries(GENRES);
+
+  const rows = [];
+
+  for (
+    let i = 0;
+    i < keys.length;
+    i += 2
+  ) {
+    const row = [];
+
+    for (
+      let j = i;
+      j < Math.min(i + 2, keys.length);
+      j++
+    ) {
+      const [key, genre] =
+        keys[j];
+
+      row.push({
+        text:
+          `${genre.emoji} ${genre.name}`,
+        callback_data:
+          `genre:${key}:1`
+      });
+    }
+
+    rows.push(row);
+  }
+
+  rows.push([
+    {
+      text: "🏠 Home",
+      callback_data:
+        "home:menu"
+    }
+  ]);
+
+  return {
+    inline_keyboard: rows
+  };
+}
+
+async function renderGenre(
+  chatId,
+  genre,
+  page = 1,
+  messageId = null
+) {
+  const result =
+    await discoverGenre(
+      genre,
+      {
+        page,
+        perPage: PAGE_SIZE
+      }
+    );
+
+  const previous =
+    result.hasPrevious
+      ? `genre:${genre}:${result.page - 1}`
+      : null;
+
+  const next =
+    result.hasNext
+      ? `genre:${genre}:${result.page + 1}`
+      : null;
+
+  const text =
+    `${result.emoji} ${result.name}\n\n` +
+    `${result.total} title(s)` +
+    (
+      result.pages > 1
+        ? ` • Page ${result.page}/${result.pages}`
+        : ""
+    );
+
+  const keyboard =
+    resultKeyboard(
+      result.results,
+      {
+        previous,
+        next
+      }
+    );
+
+  /*
+   * Add Discover button before Home.
+   */
+  const rows =
+    keyboard.inline_keyboard;
+
+  const home =
+    rows.pop();
+
+  rows.push([
+    {
+      text: "🧭 All Genres",
+      callback_data:
+        "discover:menu"
+    }
+  ]);
+
+  rows.push(home);
+
+  const options = {
+    reply_markup:
+      keyboard
+  };
+
+  if (messageId) {
+    await bot.editMessageText(
+      text,
+      {
+        chat_id:
+          chatId,
+        message_id:
+          messageId,
+        ...options
+      }
+    );
+  } else {
+    await bot.sendMessage(
+      chatId,
+      text,
+      options
+    );
+  }
+}
+
 bot.onText(
   /\/start(?:\s+.*)?$/,
   async msg => {
@@ -594,6 +738,101 @@ bot.on(
 
     const chatId =
       query.message.chat.id;
+
+    /*
+     * DISCOVER
+     */
+    if (
+      data === "discover:menu"
+    ) {
+      await bot.answerCallbackQuery(
+        query.id
+      );
+
+      await bot.editMessageText(
+        "🧭 Discover\n\n" +
+        "Choose a genre:",
+        {
+          chat_id:
+            chatId,
+          message_id:
+            query.message.message_id,
+          reply_markup:
+            genreKeyboard()
+        }
+      );
+
+      return;
+    }
+
+    if (
+      data.startsWith("genre:")
+    ) {
+      await bot.answerCallbackQuery(
+        query.id
+      );
+
+      const parts =
+        data.split(":");
+
+      const genre =
+        parts[1];
+
+      const page =
+        Number(parts[2]) || 1;
+
+      if (!GENRES[genre]) {
+        await bot.sendMessage(
+          chatId,
+          "⚠️ Genre not found."
+        );
+
+        return;
+      }
+
+      try {
+        await renderGenre(
+          chatId,
+          genre,
+          page,
+          query.message.message_id
+        );
+      } catch (error) {
+        console.error(
+          "GENRE ERROR:",
+          error
+        );
+
+        await bot.sendMessage(
+          chatId,
+          "⚠️ I couldn't load this genre.",
+          {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text:
+                      "🧭 Genres",
+                    callback_data:
+                      "discover:menu"
+                  }
+                ],
+                [
+                  {
+                    text:
+                      "🏠 Home",
+                    callback_data:
+                      "home:menu"
+                  }
+                ]
+              ]
+            }
+          }
+        );
+      }
+
+      return;
+    }
 
     /*
      * HOME
