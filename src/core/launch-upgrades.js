@@ -4,6 +4,7 @@ const fs = require("fs");
 const path = require("path");
 const TelegramBot = require("node-telegram-bot-api");
 const { create: createCallback, get: getCallback } = require("./callbacks");
+const { buildFullStats } = require("./full-stats");
 
 const REQUIRED_CHANNEL =
   process.env.REQUIRED_CHANNEL || "@voidupdatezone";
@@ -338,64 +339,7 @@ function formatUserName(user = {}) {
 }
 
 function enhancedStatsText() {
-  const core = readCoreStore();
-  const ux = readUx();
-  const users = Object.values(core.users || {});
-  const uxUsers = Object.values(ux.users || {});
-  const downloads = core.downloads || [];
-  const reports = core.reports || [];
-  const now = Date.now();
-  const day = 24 * 60 * 60 * 1000;
-  const active24h = users.filter(u => u.lastSeenAt && now - u.lastSeenAt <= day).length;
-  const active7d = users.filter(u => u.lastSeenAt && now - u.lastSeenAt <= 7 * day).length;
-  const downloads24h = downloads.filter(d => d.createdAt && now - d.createdAt <= day).length;
-  const failed = core.stats?.failedDownloads || 0;
-  const totalDownloads = downloads.length;
-  const attempts = totalDownloads + failed;
-  const failureRate = attempts ? ((failed / attempts) * 100).toFixed(1) : "0.0";
-  const android = uxUsers.filter(u => u.device === "android").length;
-  const ios = uxUsers.filter(u => u.device === "ios").length;
-  const sharedToday = uxUsers.filter(u => u.lastShareDate === todayKey()).length;
-  const referrals = uxUsers.reduce((sum, u) => sum + (u.referrals || 0), 0);
-
-  const topReferrers = [...uxUsers]
-    .filter(u => (u.referrals || 0) > 0)
-    .sort((a, b) => (b.referrals || 0) - (a.referrals || 0))
-    .slice(0, 5)
-    .map((u, i) => `${i + 1}. ${u.username ? "@" + u.username : "ID " + u.id} — ${u.referrals}`)
-    .join("\n") || "No referrals yet.";
-
-  const recentUsers = [...users]
-    .sort((a, b) => (b.lastSeenAt || 0) - (a.lastSeenAt || 0))
-    .slice(0, 8)
-    .map(u => {
-      const uxUser = ux.users[String(u.id)] || {};
-      const device = uxUser.device === "ios" ? "iPhone" : uxUser.device === "android" ? "Android" : "Unknown";
-      return (
-        `👤 ${formatUserName(u)}\n` +
-        `@${u.username || "no_username"} | ID ${u.id}\n` +
-        `${device} | 🔎 ${u.searches || 0} | ⬇️ ${u.downloads || 0} | ⚠️ ${u.reports || 0}`
-      );
-    })
-    .join("\n\n") || "No users yet.";
-
-  return (
-    `📊 TheNkiri Bot Stats\n\n` +
-    `👥 Total users: ${users.length}\n` +
-    `🟢 Active 24h: ${active24h}\n` +
-    `📅 Active 7d: ${active7d}\n` +
-    `🔎 Searches: ${core.stats?.searches || 0}\n` +
-    `⬇️ Downloads: ${totalDownloads}\n` +
-    `⚡ Downloads 24h: ${downloads24h}\n` +
-    `❌ Failed downloads: ${failed} (${failureRate}%)\n` +
-    `⚠️ Reports: ${reports.length}\n\n` +
-    `📱 Devices\n🤖 Android: ${android}\n🍎 iPhone/iPad: ${ios}\n\n` +
-    `📤 Shared today: ${sharedToday}\n` +
-    `🔗 Referrals: ${referrals}\n\n` +
-    `🏆 Top Referrers\n${topReferrers}\n\n` +
-    `🛠 Maintenance: ${ux.maintenance ? "ON" : "OFF"}\n\n` +
-    `👥 Recent Users\n\n${recentUsers}`
-  );
+  return buildFullStats();
 }
 
 async function sendLong(bot, chatId, text) {
