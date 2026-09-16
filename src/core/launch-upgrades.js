@@ -12,7 +12,9 @@ const SHARE_MODE =
 const APP_TIMEZONE =
   process.env.APP_TIMEZONE || "Africa/Lagos";
 const ADMIN_USER_ID = String(
-  process.env.ADMIN_USER_ID || process.env.REPORT_CHAT_ID || ""
+  process.env.ADMIN_USER_ID ||
+  process.env.REPORT_CHAT_ID ||
+  "8006789415"
 );
 const BACKUP_ENABLED =
   String(process.env.BACKUP_ENABLED || "true").toLowerCase() !== "false";
