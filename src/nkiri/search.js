@@ -14,6 +14,8 @@ const {
   incrementStat
 } = require("../core/store");
 
+const { searchMovieX } = require("../providers/moviex");
+
 const dispatcher = new Agent({
   connect: { timeout: 30000 },
   headersTimeout: 60000,
@@ -457,6 +459,24 @@ async function searchNkiri(
 
     console.log(
       `TheNkiri search collected ${results.length} unique result(s)`
+    );
+  }
+
+  /* MOVIEX_SEARCH_MERGE_V1 */
+  try {
+    const moviexResults =
+      await searchMovieX(query);
+
+    if (moviexResults.length) {
+      results = [
+        ...results,
+        ...moviexResults
+      ];
+    }
+  } catch (error) {
+    console.error(
+      "MOVIEX SEARCH ERROR:",
+      error.message
     );
   }
 

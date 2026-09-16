@@ -3,6 +3,11 @@ const {
   resolveWithFallback
 } = require("./downloadwella");
 
+const {
+  isMovieXMediaUrl,
+  resolveMovieXUrl
+} = require("../providers/moviex");
+
 const MEDIA_RE =
   /\.(mkv|mp4|avi|mov)(?:$|[?#])/i;
 
@@ -53,6 +58,13 @@ async function resolveDownload(input) {
 
   if (!urls.length)
     throw new Error("No download URL supplied");
+
+  /* MOVIEX_RESOLVER_V1 */
+  for (const url of urls) {
+    if (isMovieXMediaUrl(url)) {
+      return await resolveMovieXUrl(url);
+    }
+  }
 
   /*
    * Try direct media first if present.
