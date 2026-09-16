@@ -25,17 +25,20 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android platform
+      - name: Accept Android SDK licenses
+        shell: bash
         run: |
-          sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+          yes | sdkmanager --licenses >/dev/null || true
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          sdkmanager --install             "platforms;android-35"             "build-tools;35.0.0"             "platform-tools"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -47,14 +50,10 @@ jobs:
         shell: bash
         run: |
           set -e
-
           if [ -n "${{ vars.NKIRI_API_BASE_URL }}" ]; then
-            gradle :app:assembleDebug \
-              -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}" \
-              --stacktrace
+            gradle :app:assembleDebug               -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}"               --stacktrace
           else
-            gradle :app:assembleDebug \
-              --stacktrace
+            gradle :app:assembleDebug --stacktrace
           fi
 
       - name: Upload debug APK
@@ -79,14 +78,10 @@ jobs:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/nkiri-release.jks
         run: |
           set -e
-
           if [ -n "${{ vars.NKIRI_API_BASE_URL }}" ]; then
-            gradle :app:assembleRelease :app:bundleRelease \
-              -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}" \
-              --stacktrace
+            gradle :app:assembleRelease :app:bundleRelease               -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}"               --stacktrace
           else
-            gradle :app:assembleRelease :app:bundleRelease \
-              --stacktrace
+            gradle :app:assembleRelease :app:bundleRelease --stacktrace
           fi
 
       - name: Upload signed release APK
