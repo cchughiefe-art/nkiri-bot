@@ -61,6 +61,10 @@ const {
   incrementUserStat,
   trackDownload,
   getAnalytics,
+  getUser,
+  grantShareAccess,
+  hasShareAccess,
+  consumeShareAccess,
   cleanup
 } = require("./core/store");
 
@@ -123,6 +127,104 @@ bot.answerCallbackQuery =
     }
   };
 
+
+/*
+ * Telegram messages containing photos/videos/documents have captions,
+ * not text. Old callback buttons can also point at messages that can no
+ * longer be edited. Never let these normal Telegram 400 responses crash
+ * the bot.
+ */
+const originalEditMessageText =
+  bot.editMessageText.bind(bot);
+
+bot.editMessageText =
+  async (text, options = {}) => {
+    try {
+      return await originalEditMessageText(
+        text,
+        options
+      );
+    } catch (error) {
+      const description =
+        String(
+          error?.response?.body?.description ||
+          error?.message ||
+          ""
+        );
+
+      if (
+        description.includes(
+          "there is no text in the message to edit"
+        )
+      ) {
+        /*
+         * The callback came from a media message.
+         * Telegram requires editMessageCaption instead.
+         */
+        try {
+          return await bot.editMessageCaption(
+            text,
+            options
+          );
+        } catch (captionError) {
+          const captionDescription =
+            String(
+              captionError?.response?.body?.description ||
+              captionError?.message ||
+              ""
+            );
+
+          console.warn(
+            "Media edit fallback:",
+            captionDescription
+          );
+
+          /*
+           * If even the caption cannot be edited,
+           * send a fresh message instead of crashing.
+           */
+          if (options.chat_id) {
+            const {
+              chat_id,
+              message_id,
+              inline_message_id,
+              ...sendOptions
+            } = options;
+
+            return await bot.sendMessage(
+              chat_id,
+              text,
+              sendOptions
+            );
+          }
+
+          return false;
+        }
+      }
+
+      if (
+        description.includes(
+          "message is not modified"
+        ) ||
+        description.includes(
+          "message to edit not found"
+        ) ||
+        description.includes(
+          "message can't be edited"
+        )
+      ) {
+        console.warn(
+          "Ignored harmless Telegram edit error:",
+          description
+        );
+
+        return false;
+      }
+
+      throw error;
+    }
+  };
+
 const PAGE_SIZE = 6;
 
 /*
@@ -147,6 +249,242 @@ const ADMIN_USER_ID =
     process.env.REPORT_CHAT_ID ||
     ""
   );
+
+
+const REQUIRED_CHANNEL =
+  process.env.REQUIRED_CHANNEL || "";
+
+const REQUIRED_CHANNEL_URL =
+  process.env.REQUIRED_CHANNEL_URL ||
+  (
+    REQUIRED_CHANNEL.startsWith("@")
+      ? `https://t.me/${REQUIRED_CHANNEL.slice(1)}`
+      : ""
+  );
+
+const SHARE_MODE =
+  String(
+    process.env.SHARE_MODE || "every"
+  ).toLowerCase() === "daily"
+    ? "daily"
+    : "every";
+
+const APP_TIMEZONE =
+  process.env.APP_TIMEZONE ||
+  "Africa/Lagos";
+
+let BOT_USERNAME =
+  process.env.BOT_USERNAME || "";
+
+bot.getMe()
+  .then(me => {
+    BOT_USERNAME =
+      BOT_USERNAME ||
+      me.username ||
+      "";
+
+    console.log(
+      `Telegram bot: @${BOT_USERNAME}`
+    );
+  })
+  .catch(error => {
+    console.error(
+      "BOT INFO ERROR:",
+      error.message
+    );
+  });
+
+function currentDateKey() {
+  return new Intl.DateTimeFormat(
+    "en-CA",
+    {
+      timeZone:
+        APP_TIMEZONE,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }
+  ).format(
+    new Date()
+  );
+}
+
+function shareBotUrl() {
+  const botUrl =
+    BOT_USERNAME
+      ? `https://t.me/${BOT_USERNAME}`
+      : "https://t.me/";
+
+  return (
+    "https://t.me/share/url?" +
+    "url=" +
+    encodeURIComponent(botUrl) +
+    "&text=" +
+    encodeURIComponent(
+      "Watch movies, series and K-Drama with TheNkiri Bot."
+    )
+  );
+}
+
+async function channelMember(
+  userId
+) {
+  if (!REQUIRED_CHANNEL) {
+    return true;
+  }
+
+  try {
+    const member =
+      await bot.getChatMember(
+        REQUIRED_CHANNEL,
+        userId
+      );
+
+    return (
+      member.status === "creator" ||
+      member.status === "administrator" ||
+      member.status === "member" ||
+      (
+        member.status === "restricted" &&
+        member.is_member === true
+      )
+    );
+
+  } catch (error) {
+    console.error(
+      "CHANNEL CHECK ERROR:",
+      error.message
+    );
+
+    return false;
+  }
+}
+
+async function showJoinGate(
+  chatId
+) {
+  const rows = [];
+
+  if (REQUIRED_CHANNEL_URL) {
+    rows.push([
+      {
+        text:
+          "📢 Join Telegram Channel",
+        url:
+          REQUIRED_CHANNEL_URL
+      }
+    ]);
+  }
+
+  rows.push([
+    {
+      text:
+        "✅ I Joined — Verify",
+      callback_data:
+        "gate:joined"
+    }
+  ]);
+
+  await bot.sendMessage(
+    chatId,
+    "🔒 First download requirement\n\n" +
+    "Join our Telegram channel before your first download.",
+    {
+      reply_markup: {
+        inline_keyboard:
+          rows
+      }
+    }
+  );
+}
+
+async function showShareGate(
+  chatId
+) {
+  const message =
+    SHARE_MODE === "daily"
+      ? "Share the bot once today before downloading."
+      : "Share the bot before this download.";
+
+  await bot.sendMessage(
+    chatId,
+    "📤 Share required\n\n" +
+    message,
+    {
+      reply_markup: {
+        inline_keyboard: [
+          [
+            {
+              text:
+                "📤 Share Bot",
+              url:
+                shareBotUrl()
+            }
+          ],
+          [
+            {
+              text:
+                "✅ I Shared",
+              callback_data:
+                "gate:shared"
+            }
+          ]
+        ]
+      }
+    }
+  );
+}
+
+async function checkDownloadAccess(
+  userId,
+  chatId
+) {
+  const user =
+    getUser(userId);
+
+  const firstDownload =
+    !user ||
+    Number(
+      user.downloads || 0
+    ) === 0;
+
+  if (
+    firstDownload &&
+    REQUIRED_CHANNEL
+  ) {
+    const joined =
+      await channelMember(
+        userId
+      );
+
+    if (!joined) {
+      await showJoinGate(
+        chatId
+      );
+
+      return false;
+    }
+  }
+
+  const dateKey =
+    currentDateKey();
+
+  if (
+    !hasShareAccess(
+      userId,
+      dateKey,
+      SHARE_MODE
+    )
+  ) {
+    await showShareGate(
+      chatId
+    );
+
+    return false;
+  }
+
+  return true;
+}
 
 function homeKeyboard() {
   return {
@@ -735,6 +1073,29 @@ bot.onText(
 );
 
 bot.onText(
+  /\/version(?:\s+.*)?$/,
+  async msg => {
+    if (
+      String(msg.from?.id) !==
+      ADMIN_USER_ID
+    ) {
+      return;
+    }
+
+    const me =
+      await bot.getMe();
+
+    await bot.sendMessage(
+      msg.chat.id,
+      `Build: V2-REPORT-STATS-20260916\n` +
+      `Bot: @${me.username}\n` +
+      `Bot ID: ${me.id}\n` +
+      `Admin ID: ${ADMIN_USER_ID || "not set"}`
+    );
+  }
+);
+
+bot.onText(
   /\/stats(?:\s+.*)?$/,
   async msg => {
     if (
@@ -766,18 +1127,49 @@ bot.onText(
                   ? `@${item.username}`
                   : `ID ${item.userId}`;
 
-              const extra =
+              const episode =
                 item.episode
                   ? ` • ${item.episode}`
                   : "";
 
               return (
-                `• ${item.title}${extra}\n` +
+                `• ${item.title}${episode}\n` +
                 `  ${user}`
               );
             })
             .join("\n")
         : "No recent downloads.";
+
+    const users =
+      a.recentUsers.length
+        ? a.recentUsers
+            .map(user => {
+              const name =
+                [
+                  user.firstName,
+                  user.lastName
+                ]
+                  .filter(Boolean)
+                  .join(" ") ||
+                "No name";
+
+              const username =
+                user.username
+                  ? `@${user.username}`
+                  : "No username";
+
+              return (
+                `👤 ${name}\n` +
+                `Username: ${username}\n` +
+                `Telegram ID: ${user.id}\n` +
+                `Language: ${user.language || "unknown"}\n` +
+                `Searches: ${user.searches || 0}\n` +
+                `Downloads: ${user.downloads || 0}\n` +
+                `Reports: ${user.reports || 0}`
+              );
+            })
+            .join("\n\n")
+        : "No users yet.";
 
     const text =
       `📊 TheNkiri Bot Stats\n\n` +
@@ -790,11 +1182,84 @@ bot.onText(
       `❌ Failed downloads: ${a.failedDownloads}\n` +
       `⚠️ Reports: ${a.reports}\n\n` +
       `🔥 Most Downloaded\n${top}\n\n` +
-      `🕘 Recent Downloads\n${recent}`;
+      `🕘 Recent Downloads\n${recent}\n\n` +
+      `👥 Recent Users\n\n${users}`;
 
     await bot.sendMessage(
       msg.chat.id,
       text
+    );
+  }
+);
+
+bot.onText(
+  /\/user(?:\s+(\d+))?$/,
+  async (msg, match) => {
+    if (
+      String(msg.from?.id) !==
+      ADMIN_USER_ID
+    ) {
+      return;
+    }
+
+    const id =
+      match?.[1];
+
+    if (!id) {
+      await bot.sendMessage(
+        msg.chat.id,
+        "Usage: /user TELEGRAM_ID"
+      );
+
+      return;
+    }
+
+    const user =
+      getUser(id);
+
+    if (!user) {
+      await bot.sendMessage(
+        msg.chat.id,
+        "User not found."
+      );
+
+      return;
+    }
+
+    const name =
+      [
+        user.firstName,
+        user.lastName
+      ]
+        .filter(Boolean)
+        .join(" ") ||
+      "No name";
+
+    const username =
+      user.username
+        ? `@${user.username}`
+        : "No username";
+
+    await bot.sendMessage(
+      msg.chat.id,
+      `👤 User Details\n\n` +
+      `Name: ${name}\n` +
+      `Username: ${username}\n` +
+      `Telegram ID: ${user.id}\n` +
+      `Language: ${user.language || "unknown"}\n\n` +
+      `🔎 Searches: ${user.searches || 0}\n` +
+      `⬇️ Downloads: ${user.downloads || 0}\n` +
+      `⚠️ Reports: ${user.reports || 0}\n\n` +
+      `First seen: ${
+        user.firstSeenAt
+          ? new Date(user.firstSeenAt).toLocaleString()
+          : "Unknown"
+      }\n` +
+      `Last seen: ${
+        user.lastSeenAt
+          ? new Date(user.lastSeenAt).toLocaleString()
+          : "Unknown"
+      }`
     );
   }
 );
@@ -1077,6 +1542,104 @@ bot.on(
 
     const chatId =
       query.message.chat.id;
+
+    /*
+     * DOWNLOAD ACCESS
+     */
+    if (
+      data === "gate:joined"
+    ) {
+      const joined =
+        await channelMember(
+          query.from.id
+        );
+
+      if (!joined) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "Membership not detected yet.",
+            show_alert: true
+          }
+        );
+
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id,
+        {
+          text:
+            "Membership confirmed."
+        }
+      );
+
+      await showShareGate(
+        chatId
+      );
+
+      return;
+    }
+
+    if (
+      data === "gate:shared"
+    ) {
+      const user =
+        getUser(
+          query.from.id
+        );
+
+      const firstDownload =
+        !user ||
+        Number(
+          user.downloads || 0
+        ) === 0;
+
+      if (
+        firstDownload &&
+        REQUIRED_CHANNEL
+      ) {
+        const joined =
+          await channelMember(
+            query.from.id
+          );
+
+        if (!joined) {
+          await bot.answerCallbackQuery(
+            query.id,
+            {
+              text:
+                "Join the channel first.",
+              show_alert: true
+            }
+          );
+
+          return;
+        }
+      }
+
+      grantShareAccess(
+        query.from.id,
+        currentDateKey()
+      );
+
+      await bot.answerCallbackQuery(
+        query.id,
+        {
+          text:
+            "Download unlocked."
+        }
+      );
+
+      await bot.sendMessage(
+        chatId,
+        "✅ Download unlocked.\n\n" +
+        "Tap the movie or episode download button again."
+      );
+
+      return;
+    }
 
     /*
      * REPORT A PROBLEM
@@ -2201,6 +2764,25 @@ bot.on(
         return;
       }
 
+      const accessGranted =
+        await checkDownloadAccess(
+          query.from.id,
+          chatId
+        );
+
+      if (!accessGranted) {
+        await bot.answerCallbackQuery(
+          query.id
+        ).catch(() => {});
+
+        return;
+      }
+
+      consumeShareAccess(
+        query.from.id,
+        SHARE_MODE
+      );
+
       await bot.answerCallbackQuery(
         query.id,
         {
@@ -2369,6 +2951,25 @@ bot.on(
 
         return;
       }
+
+      const accessGranted =
+        await checkDownloadAccess(
+          query.from.id,
+          chatId
+        );
+
+      if (!accessGranted) {
+        await bot.answerCallbackQuery(
+          query.id
+        ).catch(() => {});
+
+        return;
+      }
+
+      consumeShareAccess(
+        query.from.id,
+        SHARE_MODE
+      );
 
       await bot.answerCallbackQuery(
         query.id,
@@ -2564,6 +3165,22 @@ http
       );
     }
   );
+
+bot.getMe()
+  .then(me => {
+    console.log(
+      `TELEGRAM BOT: @${me.username} | ID: ${me.id}`
+    );
+    console.log(
+      "BUILD: V2-REPORT-STATS-20260916"
+    );
+  })
+  .catch(error => {
+    console.error(
+      "BOT IDENTITY ERROR:",
+      error.message
+    );
+  });
 
 console.log(
   "TheNkiri Bot V2 is running..."
