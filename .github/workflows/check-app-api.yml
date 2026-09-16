@@ -1,0 +1,40 @@
+name: Check TheNkiri App API
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v2
+      - app-v1
+      - main
+    paths:
+      - "src/api/**"
+      - "src/providers/moviex.js"
+      - "src/nkiri/**"
+      - "src/resolvers/**"
+      - ".github/workflows/check-app-api.yml"
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Syntax check
+        run: |
+          node --check src/api/server.js
+          node --check src/providers/moviex.js
+          node --check src/nkiri/search.js
+          node --check src/nkiri/parser.js
+          node --check src/nkiri/series.js

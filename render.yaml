@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: nkiri-app-api
+    runtime: node
+    plan: free
+    buildCommand: npm ci
+    startCommand: node src/api/server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: API_RATE_LIMIT
+        value: "120"
+      - key: APP_LATEST_VERSION_CODE
+        value: "1"
+      - key: APP_LATEST_VERSION_NAME
+        value: "1.0.0"
+      - key: APP_FORCE_UPDATE
+        value: "false"
+      - key: APP_CHANNEL_URL
+        value: "https://t.me/voidupdatezone"
+      - key: APP_BOT_URL
+        value: "https://t.me/nkiridownbot"

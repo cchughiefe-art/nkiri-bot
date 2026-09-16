@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="nkiri_background">#09090B</color>
+    <color name="nkiri_surface">#15151B</color>
+    <color name="nkiri_accent">#E11D48</color>
+    <color name="nkiri_white">#FFFFFF</color>
+</resources>

@@ -8,7 +8,8 @@ data class SearchItem(
     val type: String,
     val poster: String?,
     val rating: Double?,
-    val genre: String
+    val genre: String,
+    val provider: String
 )
 
 data class SeasonItem(
@@ -18,6 +19,7 @@ data class SeasonItem(
 
 data class TitleInfo(
     val id: String,
+    val provider: String,
     val type: String,
     val title: String,
     val description: String,
@@ -46,6 +48,36 @@ data class SourceItem(
 )
 
 data class SourceResponse(
+    val provider: String,
     val sources: List<SourceItem>,
     val selected: SourceItem?
+)
+
+data class FavoriteItem(
+    val id: String,
+    val title: String,
+    val type: String,
+    val poster: String?,
+    val provider: String
+)
+
+data class DownloadRecord(
+    val downloadId: Long,
+    val mediaId: String,
+    val title: String,
+    val episodeLabel: String?,
+    val quality: Int,
+    val sizeText: String,
+    val createdAt: Long
+)
+
+
+data class RemoteAppConfig(
+    val latestVersionCode: Int,
+    val latestVersionName: String,
+    val updateUrl: String?,
+    val forceUpdate: Boolean,
+    val notice: String?,
+    val channelUrl: String,
+    val botUrl: String
 )

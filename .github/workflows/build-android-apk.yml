@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build TheNkiri Android
 
 on:
   workflow_dispatch:
@@ -6,6 +6,7 @@ on:
     branches:
       - v2
       - app-v1
+      - main
     paths:
       - "android-native/**"
       - ".github/workflows/build-android-apk.yml"
@@ -41,17 +42,65 @@ jobs:
         shell: bash
         run: |
           set -e
+
           if [ -n "${{ vars.NKIRI_API_BASE_URL }}" ]; then
             gradle :app:assembleDebug \
               -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}" \
               --stacktrace
           else
-            gradle :app:assembleDebug --stacktrace
+            gradle :app:assembleDebug \
+              --stacktrace
           fi
 
-      - name: Upload APK
+      - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
-          name: TheNkiri-Android-debug
+          name: TheNkiri-Android-v1-debug
           path: android-native/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+          retention-days: 14
+
+      - name: Decode release keystore
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        shell: bash
+        run: |
+          echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/nkiri-release.jks"
+
+      - name: Build signed release APK and AAB
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        working-directory: android-native
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/nkiri-release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -e
+
+          if [ -n "${{ vars.NKIRI_API_BASE_URL }}" ]; then
+            gradle :app:assembleRelease :app:bundleRelease \
+              -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}" \
+              --stacktrace
+          else
+            gradle :app:assembleRelease :app:bundleRelease \
+              --stacktrace
+          fi
+
+      - name: Upload signed release APK
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheNkiri-Android-v1-release-apk
+          path: android-native/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload signed Play Store bundle
+        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheNkiri-Android-v1-release-aab
+          path: android-native/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 30
