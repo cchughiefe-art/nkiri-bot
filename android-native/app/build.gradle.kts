@@ -16,7 +16,7 @@ val releaseKeystorePath =
 
 android {
     namespace = "com.nkiridown.app"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.nkiridown.app"
