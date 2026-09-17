@@ -14,6 +14,7 @@ enum class RootTab {
     HOME,
     FAVORITES,
     DOWNLOADS,
+    HISTORY,
     SETTINGS
 }
 
@@ -33,6 +34,7 @@ data class UiState(
     val apiStatus: String = "Checking API…",
     val apiBaseUrl: String = "",
     val results: List<SearchItem> = emptyList(),
+    val recommendations: List<SearchItem> = emptyList(),
     val sectionTitle: String = "Discover",
     val title: TitleInfo? = null,
     val season: Int? = null,
@@ -42,6 +44,8 @@ data class UiState(
     val favorites: List<FavoriteItem> = emptyList(),
     val downloads: List<DownloadRecord> = emptyList(),
     val recentSearches: List<String> = emptyList(),
+    val continueWatching: List<PlaybackRecord> = emptyList(),
+    val history: List<PlaybackRecord> = emptyList(),
     val isCurrentFavorite: Boolean = false,
     val updateAvailable: Boolean = false,
     val forceUpdate: Boolean = false,
@@ -60,6 +64,9 @@ class MainViewModel(
     private val store =
         LocalStore(application)
 
+    private val playback =
+        PlaybackStore(application)
+
     private var api =
         NkiriApi(
             store.apiBaseUrl()
@@ -68,18 +75,16 @@ class MainViewModel(
     private val _state =
         MutableStateFlow(
             UiState(
-                apiBaseUrl =
-                    store.apiBaseUrl(),
-                favorites =
-                    store.favorites(),
-                downloads =
-                    store.downloads(),
-                recentSearches =
-                    store.recentSearches(),
+                apiBaseUrl = store.apiBaseUrl(),
+                favorites = store.favorites(),
+                downloads = store.downloads(),
+                recentSearches = store.recentSearches(),
+                continueWatching =
+                    playback.continueWatching(),
+                history =
+                    playback.history(),
                 lastCrash =
-                    LocalCrashReporter.get(
-                        application
-                    )
+                    LocalCrashReporter.get(application)
             )
         )
 
@@ -123,11 +128,10 @@ class MainViewModel(
 
                     health.await()
                         .onSuccess {
-                            name ->
                             _state.value =
                                 _state.value.copy(
                                     apiStatus =
-                                        "$name • Online"
+                                        "$it • Online"
                                 )
                         }
                         .onFailure {
@@ -140,24 +144,19 @@ class MainViewModel(
 
                     config.await()
                         .onSuccess {
-                            applyRemoteConfig(
-                                it
-                            )
+                            applyRemoteConfig(it)
                         }
 
                     latest.await()
                         .onSuccess {
-                            items ->
                             _state.value =
                                 _state.value.copy(
-                                    results =
-                                        items,
+                                    results = it,
                                     sectionTitle =
                                         "Discover"
                                 )
                         }
                         .onFailure {
-                            error ->
                             if (
                                 _state.value.results
                                     .isEmpty()
@@ -165,7 +164,7 @@ class MainViewModel(
                                 _state.value =
                                     _state.value.copy(
                                         error =
-                                            error.message
+                                            it.message
                                                 ?: "Could not load the catalog."
                                     )
                             }
@@ -203,9 +202,22 @@ class MainViewModel(
             )
     }
 
-    fun selectTab(
-        tab: RootTab
-    ) {
+    fun refreshPlayback() {
+        _state.value =
+            _state.value.copy(
+                continueWatching =
+                    playback.continueWatching(),
+                history =
+                    playback.history()
+            )
+    }
+
+    fun clearHistory() {
+        playback.clear()
+        refreshPlayback()
+    }
+
+    fun selectTab(tab: RootTab) {
         _state.value =
             _state.value.copy(
                 rootTab = tab,
@@ -215,32 +227,13 @@ class MainViewModel(
             )
 
         refreshLocalLists()
+        refreshPlayback()
     }
 
-    fun setQuery(
-        value: String
-    ) {
+    fun setQuery(value: String) {
         _state.value =
             _state.value.copy(
                 query = value
-            )
-    }
-
-    fun clearError() {
-        _state.value =
-            _state.value.copy(
-                error = null
-            )
-    }
-
-    fun clearCrashLog() {
-        LocalCrashReporter.clear(
-            getApplication()
-        )
-
-        _state.value =
-            _state.value.copy(
-                lastCrash = null
             )
     }
 
@@ -268,8 +261,7 @@ class MainViewModel(
 
             _state.value =
                 _state.value.copy(
-                    rootTab =
-                        RootTab.HOME,
+                    rootTab = RootTab.HOME,
                     detailScreen =
                         DetailScreen.NONE,
                     results = results,
@@ -291,13 +283,11 @@ class MainViewModel(
 
             _state.value =
                 _state.value.copy(
-                    rootTab =
-                        RootTab.HOME,
+                    rootTab = RootTab.HOME,
                     detailScreen =
                         DetailScreen.NONE,
                     results = results,
-                    sectionTitle =
-                        label
+                    sectionTitle = label
                 )
         }
     }
@@ -321,6 +311,23 @@ class MainViewModel(
                     emptyList()
                 }
 
+            val recommendations =
+                runCatching {
+                    api.latest(
+                        if (
+                            info.type ==
+                            "series"
+                        ) "series"
+                        else "movie"
+                    )
+                        .filterNot {
+                            it.id == info.id
+                        }
+                        .take(12)
+                }.getOrDefault(
+                    emptyList()
+                )
+
             _state.value =
                 _state.value.copy(
                     detailScreen =
@@ -331,6 +338,8 @@ class MainViewModel(
                         emptyList(),
                     episode = null,
                     sources = sources,
+                    recommendations =
+                        recommendations,
                     isCurrentFavorite =
                         store.isFavorite(
                             info.id
@@ -346,13 +355,15 @@ class MainViewModel(
             SearchItem(
                 id = item.id,
                 title = item.title,
-                displayTitle = item.title,
+                displayTitle =
+                    item.title,
                 year = null,
                 type = item.type,
                 poster = item.poster,
                 rating = null,
                 genre = "",
-                provider = item.provider
+                provider =
+                    item.provider
             )
         )
     }
@@ -368,8 +379,10 @@ class MainViewModel(
                     id = title.id,
                     title = title.title,
                     type = title.type,
-                    poster = title.poster,
-                    provider = title.provider
+                    poster =
+                        title.poster,
+                    provider =
+                        title.provider
                 )
             )
 
@@ -420,8 +433,10 @@ class MainViewModel(
             val sources =
                 api.sources(
                     id = title.id,
-                    season = episode.season,
-                    episode = episode.episode
+                    season =
+                        episode.season,
+                    episode =
+                        episode.episode
                 ).sources
 
             _state.value =
@@ -450,8 +465,10 @@ class MainViewModel(
             val response =
                 api.sources(
                     id = title.id,
-                    season = episode?.season,
-                    episode = episode?.episode,
+                    season =
+                        episode?.season,
+                    episode =
+                        episode?.episode,
                     quality =
                         source.quality
                             .takeIf {
@@ -471,13 +488,140 @@ class MainViewModel(
         }
     }
 
-    fun recordDownload(
-        downloadId: Long,
-        source: SourceItem
+    fun resumePlayback(
+        record: PlaybackRecord,
+        onReady:
+            (
+                SourceItem,
+                TitleInfo,
+                EpisodeItem?
+            ) -> Unit
+    ) {
+        request {
+            val title =
+                api.title(
+                    record.mediaId
+                )
+
+            val episode =
+                if (
+                    record.season != null &&
+                    record.episode != null
+                ) {
+                    EpisodeItem(
+                        season =
+                            record.season,
+                        episode =
+                            record.episode,
+                        label =
+                            record.episodeLabel
+                                ?: "S${record.season.toString().padStart(2, '0')}E${record.episode.toString().padStart(2, '0')}"
+                    )
+                } else {
+                    null
+                }
+
+            val response =
+                api.sources(
+                    id =
+                        record.mediaId,
+                    season =
+                        record.season,
+                    episode =
+                        record.episode
+                )
+
+            val source =
+                response.selected
+                    ?: response.sources
+                        .firstOrNull()
+                    ?: throw ApiException(
+                        "No playable source was returned."
+                    )
+
+            onReady(
+                source,
+                title,
+                episode
+            )
+        }
+    }
+
+    fun downloadSeason(
+        season: Int,
+        onReady:
+            (
+                SourceItem,
+                EpisodeItem
+            ) -> Unit,
+        onDone:
+            (Int) -> Unit
     ) {
         val title =
             _state.value.title
                 ?: return
+
+        request {
+            val episodes =
+                api.episodes(
+                    title.id,
+                    season
+                )
+
+            var queued = 0
+
+            for (
+                episode in episodes
+            ) {
+                val response =
+                    runCatching {
+                        api.sources(
+                            id =
+                                title.id,
+                            season =
+                                episode.season,
+                            episode =
+                                episode.episode
+                        )
+                    }.getOrNull()
+                        ?: continue
+
+                val source =
+                    response.selected
+                        ?: response.sources
+                            .firstOrNull()
+                        ?: continue
+
+                if (
+                    !source.external &&
+                    !source.url
+                        .isNullOrBlank()
+                ) {
+                    onReady(
+                        source,
+                        episode
+                    )
+                    queued += 1
+                }
+            }
+
+            onDone(queued)
+        }
+    }
+
+    fun recordDownload(
+        downloadId: Long,
+        source: SourceItem,
+        overrideEpisode:
+            EpisodeItem? = null
+    ) {
+        val title =
+            _state.value.title
+                ?: return
+
+        val episode =
+            overrideEpisode
+                ?: _state.value.episode
 
         store.addDownload(
             DownloadRecord(
@@ -488,8 +632,7 @@ class MainViewModel(
                 title =
                     title.title,
                 episodeLabel =
-                    _state.value.episode
-                        ?.label,
+                    episode?.label,
                 quality =
                     source.quality,
                 sizeText =
@@ -508,20 +651,9 @@ class MainViewModel(
 
     fun clearDownloads() {
         store.clearDownloads()
-
         _state.value =
             _state.value.copy(
                 downloads =
-                    emptyList()
-            )
-    }
-
-    fun clearRecentSearches() {
-        store.clearRecentSearches()
-
-        _state.value =
-            _state.value.copy(
-                recentSearches =
                     emptyList()
             )
     }
@@ -530,7 +662,8 @@ class MainViewModel(
         value: String
     ) {
         val normalized =
-            value.trim().trimEnd('/')
+            value.trim()
+                .trimEnd('/')
 
         if (
             !normalized.startsWith(
@@ -553,7 +686,9 @@ class MainViewModel(
         )
 
         api =
-            NkiriApi(normalized)
+            NkiriApi(
+                normalized
+            )
 
         _state.value =
             _state.value.copy(
@@ -568,27 +703,21 @@ class MainViewModel(
 
     fun checkApi() {
         viewModelScope.launch {
-            val health =
-                runCatching {
-                    api.health()
-                }
-
-            health
-                .onSuccess {
-                    name ->
-                    _state.value =
-                        _state.value.copy(
-                            apiStatus =
-                                "$name • Online"
-                        )
-                }
-                .onFailure {
-                    _state.value =
-                        _state.value.copy(
-                            apiStatus =
-                                "API offline"
-                        )
-                }
+            runCatching {
+                api.health()
+            }.onSuccess {
+                _state.value =
+                    _state.value.copy(
+                        apiStatus =
+                            "$it • Online"
+                    )
+            }.onFailure {
+                _state.value =
+                    _state.value.copy(
+                        apiStatus =
+                            "API offline"
+                    )
+            }
 
             runCatching {
                 api.config()
@@ -634,6 +763,8 @@ class MainViewModel(
                             emptyList(),
                         episode = null,
                         sources =
+                            emptyList(),
+                        recommendations =
                             emptyList()
                     )
 

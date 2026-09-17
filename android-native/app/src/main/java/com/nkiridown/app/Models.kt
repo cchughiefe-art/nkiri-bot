@@ -12,10 +12,7 @@ data class SearchItem(
     val provider: String
 )
 
-data class SeasonItem(
-    val season: Int,
-    val maxEp: Int
-)
+data class SeasonItem(val season: Int, val maxEp: Int)
 
 data class TitleInfo(
     val id: String,
@@ -74,6 +71,26 @@ data class DownloadRecord(
     val createdAt: Long
 )
 
+data class PlaybackRecord(
+    val mediaId: String,
+    val title: String,
+    val poster: String?,
+    val provider: String,
+    val type: String,
+    val season: Int?,
+    val episode: Int?,
+    val episodeLabel: String?,
+    val positionMs: Long,
+    val durationMs: Long,
+    val updatedAt: Long,
+    val completed: Boolean
+) {
+    val progress: Float
+        get() = if (durationMs > 0L) {
+            (positionMs.toDouble() / durationMs.toDouble())
+                .coerceIn(0.0, 1.0).toFloat()
+        } else 0f
+}
 
 data class RemoteAppConfig(
     val latestVersionCode: Int,
