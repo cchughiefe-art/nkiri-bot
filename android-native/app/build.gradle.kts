@@ -22,8 +22,8 @@ android {
         applicationId = "com.nkiridown.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 7
-        versionName = "3.1.0"
+        versionCode = 8
+        versionName = "3.1.0-beta1"
 
         buildConfigField(
             "String",
