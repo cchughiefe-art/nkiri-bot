@@ -333,69 +333,144 @@ async function sourcesFor(id, season = 0, episode = 0, quality = 0) {
 
 
 async function buildHomePayload() {
-  const cacheKey = "home:v3:genre-rails";
-  const cached = getCached(cacheKey);
-  if (cached) return cached;
+  const cacheKey = "home:v4:fzmovies";
 
-  const safe = async loader => {
+  const cached =
+    getCached(cacheKey);
+
+  if (cached)
+    return cached;
+
+  const safeFz = async options => {
     try {
-      const result = await loader();
-      return Array.isArray(result?.results) ? result.results : [];
+      return await latestFz(options);
     } catch (error) {
-      console.error("HOME SECTION ERROR:", error.message);
+      console.error(
+        "FZMOVIES HOME ERROR:",
+        error.message
+      );
+
       return [];
     }
   };
 
   const specs = [
-    { id: "trending", title: "Trending Now", subtitle: "Popular picks right now", load: () => getLatest("all", { page: 1, perPage: 8 }) },
-    { id: "nollywood", title: "Nollywood", subtitle: "Nigerian movies and series", load: () => searchNkiri("Nollywood", { page: 1, perPage: 8 }) },
-    { id: "new-movies", title: "New Movies", subtitle: "Recently added films", load: () => getLatest("movie", { page: 1, perPage: 8 }) },
-    { id: "action", title: "Action", subtitle: "Fast, loud and high-stakes", load: () => searchNkiri("Action", { page: 1, perPage: 8 }) },
-    { id: "comedy", title: "Comedy", subtitle: "Easy laughs", load: () => searchNkiri("Comedy", { page: 1, perPage: 8 }) },
-    { id: "drama", title: "Drama", subtitle: "Big stories and strong characters", load: () => searchNkiri("Drama", { page: 1, perPage: 8 }) },
-    { id: "romance", title: "Romance", subtitle: "Love stories", load: () => searchNkiri("Romance", { page: 1, perPage: 8 }) },
-    { id: "thriller", title: "Thriller", subtitle: "Tense from start to finish", load: () => searchNkiri("Thriller", { page: 1, perPage: 8 }) },
-    { id: "horror", title: "Horror", subtitle: "Dark nights and jump scares", load: () => searchNkiri("Horror", { page: 1, perPage: 8 }) },
-    { id: "scifi", title: "Sci-Fi", subtitle: "Future worlds and impossible ideas", load: () => searchNkiri("Science Fiction", { page: 1, perPage: 8 }) },
-    { id: "kdrama", title: "Korean Drama", subtitle: "K-Drama in its own section", load: () => getLatest("drama", { page: 1, perPage: 8 }) },
-    { id: "series", title: "TV Series", subtitle: "Binge-worthy shows", load: () => getLatest("series", { page: 1, perPage: 8 }) }
+    {
+      id: "fz-trending",
+      title: "Trending Now",
+      subtitle: "Popular on TheNkiri",
+      options: {
+        category: 7,
+        limit: 12
+      }
+    },
+    {
+      id: "fz-latest",
+      title: "Recently Added",
+      subtitle: "Fresh additions",
+      options: {
+        limit: 12
+      }
+    },
+    {
+      id: "fz-movies",
+      title: "Movies",
+      subtitle: "Latest movies",
+      options: {
+        category: 3,
+        limit: 12
+      }
+    },
+    {
+      id: "fz-series",
+      title: "TV Series",
+      subtitle: "New episodes and series",
+      options: {
+        category: 4,
+        limit: 12
+      }
+    },
+    {
+      id: "fz-korean",
+      title: "Korean Series",
+      subtitle: "K-Drama and Korean shows",
+      options: {
+        category: 5,
+        limit: 12
+      }
+    },
+    {
+      id: "fz-sa",
+      title: "South African Series",
+      subtitle: "South African shows",
+      options: {
+        category: 6,
+        limit: 12
+      }
+    }
   ];
 
-  const rawSections = await Promise.all(
-    specs.map(async spec => ({
-      ...spec,
-      items: await safe(spec.load)
-    }))
-  );
+  const sections =
+    (
+      await Promise.all(
+        specs.map(
+          async spec => ({
+            id: spec.id,
+            title: spec.title,
+            subtitle:
+              spec.subtitle,
+            items:
+              await safeFz(
+                spec.options
+              )
+          })
+        )
+      )
+    )
+      .map(section => {
+        const seen =
+          new Set();
 
-  const sections = rawSections
-    .map(section => {
-      const seen = new Set();
-      const items = section.items
-        .map(toSearchItem)
-        .filter(Boolean)
-        .filter(item => {
-          if (seen.has(item.id)) return false;
-          seen.add(item.id);
-          return true;
-        })
-        .slice(0, 8);
+        return {
+          ...section,
 
-      return {
-        id: section.id,
-        title: section.title,
-        subtitle: section.subtitle,
-        items
-      };
-    })
-    .filter(section => section.items.length);
+          items:
+            section.items
+              .filter(item => {
+                if (
+                  !item?.id ||
+                  seen.has(
+                    item.id
+                  )
+                ) {
+                  return false;
+                }
+
+                seen.add(
+                  item.id
+                );
+
+                return true;
+              })
+              .slice(0, 12)
+        };
+      })
+      .filter(
+        section =>
+          section.items.length
+      );
 
   return setCached(
     cacheKey,
     {
+      provider:
+        "fzmovies",
+
       sections,
-      generatedAt: new Date().toISOString()
+
+      generatedAt:
+        new Date()
+          .toISOString()
     }
   );
 }
