@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Environment
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -139,6 +140,7 @@ object ManagedDownloads {
         )
 
         update(context.applicationContext) { listOf(task) + it }
+        ensureForegroundService(context)
         start(context.applicationContext, id)
         return id
     }
@@ -158,6 +160,7 @@ object ManagedDownloads {
 
     fun resume(context: Context, id: String) {
         initialize(context)
+        ensureForegroundService(context)
         start(context.applicationContext, id)
     }
 
@@ -171,6 +174,7 @@ object ManagedDownloads {
                 ) else it
             }
         }
+        ensureForegroundService(context)
         start(context.applicationContext, id)
     }
 
@@ -355,6 +359,18 @@ object ManagedDownloads {
                     ) else it
                 }
             }
+        }
+    }
+
+    private fun ensureForegroundService(context: Context) {
+        runCatching {
+            ContextCompat.startForegroundService(
+                context.applicationContext,
+                Intent(
+                    context.applicationContext,
+                    DownloadForegroundService::class.java
+                )
+            )
         }
     }
 
