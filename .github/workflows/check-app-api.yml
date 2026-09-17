@@ -15,26 +15,74 @@ on:
       - ".github/workflows/check-app-api.yml"
 
 jobs:
-  syntax:
+  check:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: "22"
           cache: npm
 
-      - name: Install
+      - name: Install dependencies
         run: npm ci
 
-      - name: Syntax check
+      - name: Syntax checks
         run: |
           node --check src/api/server.js
           node --check src/providers/moviex.js
           node --check src/nkiri/search.js
           node --check src/nkiri/parser.js
           node --check src/nkiri/series.js
+
+      - name: API smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          API_PORT=3101 \
+          APP_LATEST_VERSION_CODE=1 \
+          APP_LATEST_VERSION_NAME=1.0.0 \
+          node src/api/server.js > /tmp/nkiri-api.log 2>&1 &
+          API_PID=$!
+
+          cleanup() {
+            kill "$API_PID" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          for i in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:3101/health > /tmp/health.json; then
+              break
+            fi
+            sleep 1
+          done
+
+          curl --fail --silent http://127.0.0.1:3101/health > /tmp/health.json
+          curl --fail --silent http://127.0.0.1:3101/api/config > /tmp/config.json
+
+          node - <<'NODE'
+          const fs = require("fs");
+
+          for (const file of ["/tmp/health.json", "/tmp/config.json"]) {
+            const json = JSON.parse(fs.readFileSync(file, "utf8"));
+            if (json.status !== "success") {
+              throw new Error(`${file} did not return status=success`);
+            }
+          }
+
+          const config = JSON.parse(fs.readFileSync("/tmp/config.json", "utf8"));
+          if (!config.data || config.data.latestVersionCode !== 1) {
+            throw new Error("Unexpected /api/config response");
+          }
+
+          console.log("API smoke tests passed");
+          NODE
+
+      - name: Print API log on failure
+        if: failure()
+        run: cat /tmp/nkiri-api.log || true

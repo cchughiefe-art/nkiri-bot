@@ -409,7 +409,7 @@ async function handle(req, res) {
 
 
   if (
-    pathname === "/api/config"
+    path === "/api/config"
   ) {
     return ok(res, {
       latestVersionCode:

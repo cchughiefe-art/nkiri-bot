@@ -32,6 +32,17 @@ android {
         )
     }
 
+    // Align both compilers. Gradle 8+ treats mismatched JVM targets as an error.
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    @Suppress("DEPRECATION")
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
     signingConfigs {
         if (releaseKeystorePath != null) {
             create("release") {
@@ -74,6 +85,11 @@ android {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
     }
+}
+
+// Pin the build toolchain to the same JDK already provisioned by CI.
+kotlin {
+    jvmToolchain(17)
 }
 
 dependencies {
