@@ -311,7 +311,7 @@ object ManagedDownloads {
                 var lastPersistBytes = downloaded
 
                 while (true) {
-                    coroutineContext.ensureActive()
+                    currentCoroutineContext().ensureActive()
                     val read = input.read(buffer)
                     if (read < 0) break
 
