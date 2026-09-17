@@ -14,6 +14,14 @@ const {
 } = require("../providers/moviex");
 const { resolveDownload } = require("../resolvers");
 
+const {
+  isFzId,
+  searchFz,
+  latestFz,
+  titleFz,
+  sourcesFz
+} = require("./fzmovies-integration");
+
 const HOST = process.env.API_HOST || "0.0.0.0";
 const PORT = Number(process.env.API_PORT || process.env.PORT || 3001);
 const API_NAME = process.env.API_NAME || "TheNkiri App API";
@@ -97,6 +105,13 @@ function encodeNkiri(url, type) {
 
 function decodeId(id) {
   const value = String(id || "");
+
+  if (isFzId(value)) {
+    return {
+      provider: "fzmovies",
+      id: value
+    };
+  }
   if (/^\d+$/.test(value)) {
     return { provider: "moviex", id: value };
   }
@@ -178,6 +193,13 @@ async function titleFor(id) {
 
   if (media.provider === "moviex") {
     return setCached(cacheKey, movieXTitle(await getMovieXInfo(media.id)));
+  }
+
+  if (media.provider === "fzmovies") {
+    return setCached(
+      cacheKey,
+      await titleFz(media.id)
+    );
   }
 
   if (media.type === "series") {
@@ -267,6 +289,14 @@ async function resolveNkiri(downloadUrl, fallback = {}) {
 
 async function sourcesFor(id, season = 0, episode = 0, quality = 0) {
   const media = decodeId(id);
+
+  if (media.provider === "fzmovies") {
+    return await sourcesFz(
+      media.id,
+      season,
+      episode
+    );
+  }
 
   if (media.provider === "moviex") {
     const result = await getMovieXSources(media.id, season, episode);
@@ -393,7 +423,7 @@ async function handle(req, res) {
       name: API_NAME,
       version: "1.0.0",
       online: true,
-      providers: ["thenkiri", "moviex"],
+      providers: ["thenkiri", "moviex", "fzmovies"],
       time: new Date().toISOString()
     });
   }
@@ -408,13 +438,46 @@ async function handle(req, res) {
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
     const perPage = Math.max(1, Math.min(20, Number(url.searchParams.get("perPage") || 12)));
     const result = await searchNkiri(q, { page, perPage });
-    return ok(res, result.results.map(toSearchItem).filter(Boolean), {
+
+    let fz = [];
+
+    try {
+      fz = await searchFz(q, perPage);
+    } catch (error) {
+      console.error(
+        "FZMOVIES SEARCH ERROR:",
+        error.message
+      );
+    }
+
+    const combined = [
+      ...result.results
+        .map(toSearchItem)
+        .filter(Boolean),
+      ...fz
+    ];
+
+    const seen = new Set();
+
+    const items =
+      combined.filter(item => {
+        const key =
+          `${item.provider}:${item.id}`;
+
+        if (seen.has(key))
+          return false;
+
+        seen.add(key);
+        return true;
+      });
+
+    return ok(res, items, {
       query: q,
-      total: result.total,
-      page: result.page,
-      pages: result.pages,
-      hasPrevious: result.hasPrevious,
-      hasNext: result.hasNext
+      total: items.length,
+      page: 1,
+      pages: 1,
+      hasPrevious: false,
+      hasNext: false
     });
   }
 
@@ -426,13 +489,56 @@ async function handle(req, res) {
     const page = Math.max(1, Number(url.searchParams.get("page") || 1));
     const perPage = Math.max(1, Math.min(20, Number(url.searchParams.get("perPage") || 12)));
     const result = await getLatest(type, { page, perPage });
-    return ok(res, result.results.map(toSearchItem).filter(Boolean), {
+
+    let fz = [];
+
+    try {
+      fz = await latestFz({
+        limit: perPage
+      });
+
+      if (type !== "all") {
+        fz = fz.filter(item =>
+          type === "movie"
+            ? item.type === "movie"
+            : item.type === "series"
+        );
+      }
+    } catch (error) {
+      console.error(
+        "FZMOVIES LATEST ERROR:",
+        error.message
+      );
+    }
+
+    const combined = [
+      ...result.results
+        .map(toSearchItem)
+        .filter(Boolean),
+      ...fz
+    ];
+
+    const seen = new Set();
+
+    const items =
+      combined.filter(item => {
+        const key =
+          `${item.provider}:${item.id}`;
+
+        if (seen.has(key))
+          return false;
+
+        seen.add(key);
+        return true;
+      });
+
+    return ok(res, items, {
       type,
-      total: result.total,
-      page: result.page,
-      pages: result.pages,
-      hasPrevious: result.hasPrevious,
-      hasNext: result.hasNext
+      total: items.length,
+      page: 1,
+      pages: 1,
+      hasPrevious: false,
+      hasNext: false
     });
   }
 
