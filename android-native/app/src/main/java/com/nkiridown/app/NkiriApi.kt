@@ -499,6 +499,20 @@ class NkiriApi(
             url =
                 optStringOrNull(
                     "url"
+                ),
+            type =
+                optString(
+                    "type",
+                    "direct"
+                ),
+            external =
+                optBoolean(
+                    "external",
+                    false
+                ),
+            pageUrl =
+                optStringOrNull(
+                    "pageUrl"
                 )
         )
 }

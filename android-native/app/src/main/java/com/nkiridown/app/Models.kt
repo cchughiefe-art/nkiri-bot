@@ -44,7 +44,10 @@ data class SourceItem(
     val size: Long,
     val sizeText: String,
     val format: String,
-    val url: String?
+    val url: String?,
+    val type: String = "direct",
+    val external: Boolean = false,
+    val pageUrl: String? = null
 )
 
 data class SourceResponse(

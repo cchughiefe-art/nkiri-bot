@@ -244,7 +244,10 @@ function summarizeSource(source) {
     size: Number(source.size || 0),
     sizeText: source.sizeText || (source.size ? formatSize(source.size) : ""),
     format: source.format || "mp4",
-    url: source.directUrl || source.downloadUrl || source.url || null
+    url: source.directUrl || source.downloadUrl || source.url || null,
+    type: source.type || "direct",
+    external: Boolean(source.external),
+    pageUrl: source.pageUrl || null
   };
 }
 
@@ -255,7 +258,10 @@ async function resolveNkiri(downloadUrl, fallback = {}) {
     size: Number(resolved.size || fallback.size || 0),
     sizeText: resolved.sizeText || (resolved.size ? formatSize(resolved.size) : ""),
     format: resolved.format || "mp4",
-    url: resolved.directUrl || resolved.pageUrl || null
+    url: resolved.directUrl || resolved.pageUrl || null,
+    type: resolved.type || "direct",
+    external: Boolean(resolved.external),
+    pageUrl: resolved.pageUrl || null
   };
 }
 
