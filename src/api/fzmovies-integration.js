@@ -4,6 +4,8 @@ const {
   getFzMovie
 } = require("../providers/fzmovies");
 
+const { fetch } = require("undici");
+
 const {
   resolveDownload
 } = require("../resolvers");
@@ -99,16 +101,135 @@ async function titleFz(encodedId) {
   };
 }
 
+
+function formatBytes(bytes) {
+  const n = Number(bytes || 0);
+
+  if (!n)
+    return "";
+
+  const units = [
+    "B",
+    "KB",
+    "MB",
+    "GB",
+    "TB"
+  ];
+
+  let value = n;
+  let unit = 0;
+
+  while (
+    value >= 1024 &&
+    unit < units.length - 1
+  ) {
+    value /= 1024;
+    unit++;
+  }
+
+  return `${value.toFixed(
+    value >= 100 || unit === 0
+      ? 0
+      : value >= 10
+        ? 1
+        : 2
+  )} ${units[unit]}`;
+}
+
+async function probeMedia(url) {
+  try {
+    const response =
+      await fetch(url, {
+        redirect: "follow",
+        headers: {
+          "user-agent":
+            "Mozilla/5.0 (Android 15; Mobile)",
+          range: "bytes=0-0"
+        }
+      });
+
+    const range =
+      response.headers.get(
+        "content-range"
+      );
+
+    const length =
+      response.headers.get(
+        "content-length"
+      );
+
+    const type =
+      response.headers.get(
+        "content-type"
+      );
+
+    let totalBytes = 0;
+
+    if (range) {
+      const match =
+        range.match(
+          /\/(\d+)$/
+        );
+
+      if (match) {
+        totalBytes =
+          Number(match[1]) || 0;
+      }
+    }
+
+    if (
+      !totalBytes &&
+      length &&
+      response.status !== 206
+    ) {
+      totalBytes =
+        Number(length) || 0;
+    }
+
+    return {
+      totalBytes,
+      sizeText:
+        formatBytes(totalBytes),
+      mimeType:
+        type || null,
+      resumable:
+        response.status === 206 ||
+        Boolean(range)
+    };
+  } catch (error) {
+    console.error(
+      "MEDIA PROBE ERROR:",
+      error.message
+    );
+
+    return {
+      totalBytes: 0,
+      sizeText: "",
+      mimeType: null,
+      resumable: false
+    };
+  }
+}
+
 async function resolveOne(source) {
   const resolved =
     await resolveDownload(
       source.url
     );
 
+  const media =
+    await probeMedia(
+      resolved.directUrl ||
+      resolved.pageUrl ||
+      source.url
+    );
+
   return {
     quality: 0,
-    size: 0,
-    sizeText: "",
+    size:
+      media.totalBytes || 0,
+    sizeText:
+      media.sizeText || "",
     format:
       /\.mkv(?:$|\?)/i.test(
         resolved.directUrl || source.url
@@ -133,8 +254,17 @@ async function resolveOne(source) {
       source.label || null,
     temporary:
       Boolean(
-        resolved.temporary
+        resolved.temporary ||
+        resolved.type === "downloadwella" ||
+        resolved.type === "wideshares" ||
+        resolved.type === "sabishares"
       ),
+    resumable:
+      Boolean(
+        media.resumable
+      ),
+    mimeType:
+      media.mimeType,
     host:
       resolved.host || null
   };
