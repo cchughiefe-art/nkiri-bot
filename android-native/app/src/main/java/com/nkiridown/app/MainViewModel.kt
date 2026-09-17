@@ -227,6 +227,60 @@ class MainViewModel(
             )
     }
 
+    fun onNetworkAvailable() {
+        viewModelScope.launch {
+            runCatching {
+                api.health()
+            }.onSuccess {
+                _state.value =
+                    _state.value.copy(
+                        apiStatus =
+                            "$it • Online",
+                        error = null
+                    )
+            }
+
+            runCatching {
+                api.config()
+            }.onSuccess {
+                applyRemoteConfig(it)
+            }
+
+            runCatching {
+                api.home()
+            }.onSuccess { sections ->
+                if (sections.isNotEmpty()) {
+                    _state.value =
+                        _state.value.copy(
+                            homeSections =
+                                sections,
+                            results =
+                                if (
+                                    _state.value.detailScreen ==
+                                    DetailScreen.NONE &&
+                                    _state.value.query.isBlank()
+                                ) {
+                                    sections
+                                        .firstOrNull()
+                                        ?.items
+                                        .orEmpty()
+                                } else {
+                                    _state.value.results
+                                }
+                        )
+                }
+            }
+        }
+    }
+
+    fun onNetworkLost() {
+        _state.value =
+            _state.value.copy(
+                apiStatus =
+                    "Offline • waiting for connection"
+            )
+    }
+
     fun refreshPlayback() {
         _state.value =
             _state.value.copy(

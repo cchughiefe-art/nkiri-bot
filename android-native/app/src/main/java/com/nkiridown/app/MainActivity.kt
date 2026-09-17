@@ -9,10 +9,34 @@ import androidx.activity.viewModels
 class MainActivity : ComponentActivity() {
     private val viewModel by viewModels<MainViewModel>()
 
+    private lateinit var networkMonitor:
+        NetworkMonitor
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
         ManagedDownloads.initialize(applicationContext)
+
+        networkMonitor =
+            NetworkMonitor(
+                context = applicationContext,
+                onAvailable = {
+                    runOnUiThread {
+                        viewModel.onNetworkAvailable()
+
+                        ManagedDownloads.resumeWaiting(
+                            applicationContext
+                        )
+                    }
+                },
+                onLost = {
+                    runOnUiThread {
+                        viewModel.onNetworkLost()
+                    }
+                }
+            )
+
+        networkMonitor.start()
 
         setContent {
             NkiriTheme {
@@ -140,5 +164,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.refreshPlayback()
+    }
+
+    override fun onDestroy() {
+        networkMonitor.stop()
+        super.onDestroy()
     }
 }

@@ -164,6 +164,41 @@ object ManagedDownloads {
         start(context.applicationContext, id)
     }
 
+    fun resumeWaiting(context: Context) {
+        initialize(context)
+
+        val waiting =
+            _tasks.value.filter {
+                it.status ==
+                    ManagedDownloadStatus.FAILED &&
+                (
+                    it.error?.contains(
+                        "network",
+                        ignoreCase = true
+                    ) == true ||
+                    it.error?.contains(
+                        "timeout",
+                        ignoreCase = true
+                    ) == true ||
+                    it.error?.contains(
+                        "unable to resolve",
+                        ignoreCase = true
+                    ) == true ||
+                    it.error?.contains(
+                        "connection",
+                        ignoreCase = true
+                    ) == true
+                )
+            }
+
+        waiting.forEach {
+            retry(
+                context,
+                it.id
+            )
+        }
+    }
+
     fun retry(context: Context, id: String) {
         initialize(context)
         update(context.applicationContext) { list ->
