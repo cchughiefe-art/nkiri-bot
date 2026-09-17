@@ -38,6 +38,8 @@ data class ManagedDownload(
     val filePath: String,
     val downloadedBytes: Long,
     val totalBytes: Long,
+    val speedBytesPerSecond: Long = 0L,
+    val etaSeconds: Long? = null,
     val status: ManagedDownloadStatus,
     val error: String? = null,
     val createdAt: Long
@@ -345,6 +347,14 @@ object ManagedDownloads {
                 var lastPersist = System.currentTimeMillis()
                 var lastPersistBytes = downloaded
 
+                var speedSampleTime =
+                    System.currentTimeMillis()
+
+                var speedSampleBytes =
+                    downloaded
+
+                var currentSpeed = 0L
+
                 while (true) {
                     currentCoroutineContext().ensureActive()
                     val read = input.read(buffer)
@@ -354,16 +364,62 @@ object ManagedDownloads {
                     downloaded += read
 
                     val now = System.currentTimeMillis()
+
+                    val sampleMs =
+                        now - speedSampleTime
+
+                    if (sampleMs >= 1000L) {
+                        val sampleBytes =
+                            downloaded -
+                            speedSampleBytes
+
+                        currentSpeed =
+                            if (sampleBytes > 0L) {
+                                (
+                                    sampleBytes *
+                                    1000L /
+                                    sampleMs
+                                )
+                            } else {
+                                0L
+                            }
+
+                        speedSampleTime =
+                            now
+
+                        speedSampleBytes =
+                            downloaded
+                    }
+
                     if (
                         now - lastPersist >= 500L ||
                         downloaded - lastPersistBytes >= 1024L * 1024L
                     ) {
+                        val remaining =
+                            (
+                                total -
+                                downloaded
+                            ).coerceAtLeast(0L)
+
+                        val eta =
+                            if (
+                                currentSpeed > 0L &&
+                                remaining > 0L
+                            ) {
+                                remaining /
+                                currentSpeed
+                            } else {
+                                null
+                            }
+
                         update(context, persistNow = false) { list ->
                             list.map {
                                 if (it.id == id) it.copy(
                                     status = ManagedDownloadStatus.RUNNING,
                                     downloadedBytes = downloaded,
-                                    totalBytes = total.coerceAtLeast(it.totalBytes)
+                                    totalBytes = total.coerceAtLeast(it.totalBytes),
+                                    speedBytesPerSecond = currentSpeed,
+                                    etaSeconds = eta
                                 ) else it
                             }
                         }
@@ -390,6 +446,8 @@ object ManagedDownloads {
                         status = ManagedDownloadStatus.COMPLETED,
                         downloadedBytes = size,
                         totalBytes = maxOf(size, total),
+                        speedBytesPerSecond = 0L,
+                        etaSeconds = 0L,
                         error = null
                     ) else it
                 }

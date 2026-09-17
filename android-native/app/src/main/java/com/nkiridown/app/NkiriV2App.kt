@@ -870,6 +870,82 @@ private fun libraryScreen(items: List<FavoriteItem>, onOpen: (FavoriteItem) -> U
     }
 }
 
+private fun downloadBytesText(
+    bytes: Long
+): String {
+    if (bytes <= 0L) return "0 B"
+
+    val units =
+        listOf(
+            "B",
+            "KB",
+            "MB",
+            "GB",
+            "TB"
+        )
+
+    var value =
+        bytes.toDouble()
+
+    var unit = 0
+
+    while (
+        value >= 1024.0 &&
+        unit < units.lastIndex
+    ) {
+        value /= 1024.0
+        unit++
+    }
+
+    return when {
+        value >= 100 ->
+            "${value.toInt()} ${units[unit]}"
+
+        value >= 10 ->
+            String.format(
+                "%.1f %s",
+                value,
+                units[unit]
+            )
+
+        else ->
+            String.format(
+                "%.2f %s",
+                value,
+                units[unit]
+            )
+    }
+}
+
+private fun downloadEtaText(
+    seconds: Long?
+): String {
+    if (
+        seconds == null ||
+        seconds <= 0L
+    ) {
+        return ""
+    }
+
+    return when {
+        seconds < 60 ->
+            "~${seconds}s left"
+
+        seconds < 3600 ->
+            "~${seconds / 60} min left"
+
+        else -> {
+            val hours =
+                seconds / 3600
+
+            val minutes =
+                (seconds % 3600) / 60
+
+            "~${hours}h ${minutes}m left"
+        }
+    }
+}
+
 @Composable
 private fun downloadsScreen(
     downloads: List<DownloadRecord>,
@@ -970,6 +1046,114 @@ private fun downloadsScreen(
                                 }
                         ).joinToString(" • "),
                         color = NkiriMuted
+                    )
+
+                    if (
+                        task.status ==
+                            ManagedDownloadStatus.RUNNING ||
+                        task.status ==
+                            ManagedDownloadStatus.PAUSED ||
+                        task.status ==
+                            ManagedDownloadStatus.FAILED
+                    ) {
+                        val total =
+                            task.totalBytes
+
+                        val downloaded =
+                            task.downloadedBytes
+
+                        val remaining =
+                            if (total > 0L) {
+                                (
+                                    total -
+                                    downloaded
+                                ).coerceAtLeast(0L)
+                            } else {
+                                0L
+                            }
+
+                        Spacer(
+                            Modifier.height(6.dp)
+                        )
+
+                        Text(
+                            buildString {
+                                append(
+                                    downloadBytesText(
+                                        downloaded
+                                    )
+                                )
+
+                                if (total > 0L) {
+                                    append(" / ")
+                                    append(
+                                        downloadBytesText(
+                                            total
+                                        )
+                                    )
+
+                                    append(" • ")
+
+                                    append(
+                                        downloadBytesText(
+                                            remaining
+                                        )
+                                    )
+
+                                    append(
+                                        " remaining"
+                                    )
+                                }
+                            },
+                            color = NkiriText,
+                            style =
+                                MaterialTheme
+                                    .typography
+                                    .bodyMedium
+                        )
+
+                        if (
+                            task.status ==
+                                ManagedDownloadStatus.RUNNING
+                        ) {
+                            val extras =
+                                listOfNotNull(
+                                    task
+                                        .speedBytesPerSecond
+                                        .takeIf {
+                                            it > 0L
+                                        }
+                                        ?.let {
+                                            "${
+                                                downloadBytesText(
+                                                    it
+                                                )
+                                            }/s"
+                                        },
+                                    downloadEtaText(
+                                        task.etaSeconds
+                                    ).takeIf {
+                                        it.isNotBlank()
+                                    }
+                                )
+                                    .joinToString(
+                                        " • "
+                                    )
+
+                            if (
+                                extras.isNotBlank()
+                            ) {
+                                Text(
+                                    extras,
+                                    color =
+                                        NkiriAccent,
+                                    style =
+                                        MaterialTheme
+                                            .typography
+                                            .bodySmall
+                                )
+                            }
+                        }
                     )
 
                     Spacer(Modifier.height(10.dp))
