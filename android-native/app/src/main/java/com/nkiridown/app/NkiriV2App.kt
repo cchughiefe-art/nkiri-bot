@@ -1395,15 +1395,20 @@ private fun DownloadsScreen(
         while (true) {
             snapshots =
                 downloads
-                    .mapNotNull {
-                        record ->
+                    .mapNotNull { record ->
+                        val snapshot =
+                            queryDownloadSnapshot(
+                                context,
+                                record.downloadId
+                            )
 
-                        queryDownloadSnapshot(
-                            context,
-                            record.downloadId
-                        )?.let {
-                            record.downloadId
-                                to it
+                        if (snapshot != null) {
+                            Pair(
+                                record.downloadId,
+                                snapshot
+                            )
+                        } else {
+                            null
                         }
                     }
                     .toMap()
