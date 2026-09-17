@@ -152,28 +152,72 @@ private fun homeScreen(
     onOpenTitle: (SearchItem) -> Unit,
     onResume: (PlaybackRecord) -> Unit
 ) {
-    val featured = state.results.firstOrNull()
-    val rest = if (featured != null) state.results.drop(1) else state.results
+    val browsingSection =
+        state.sectionTitle.isNotBlank() &&
+            state.sectionTitle != "Discover"
+
+    val featured =
+        if (!browsingSection) {
+            state.homeSections
+                .firstOrNull { it.items.isNotEmpty() }
+                ?.items
+                ?.firstOrNull()
+                ?: state.results.firstOrNull()
+        } else {
+            state.results.firstOrNull()
+        }
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(bottom = 28.dp)
     ) {
         item {
-            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(
+                Modifier.padding(
+                    horizontal = 16.dp,
+                    vertical = 14.dp
+                )
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
                     Column(Modifier.weight(1f)) {
-                        Text("TheNkiri", color = NkiriText, style = MaterialTheme.typography.headlineMedium)
-                        Text("Download less. Watch more.", color = NkiriMuted)
+                        Text(
+                            "TheNkiri",
+                            color = NkiriText,
+                            style = MaterialTheme.typography.headlineMedium
+                        )
+                        Text(
+                            "Movies for every mood.",
+                            color = NkiriMuted
+                        )
                     }
+
                     Surface(
-                        color = if (state.apiStatus.contains("Online")) Color(0xFF103A2E) else Color(0xFF3A1719),
+                        color =
+                            if (state.apiStatus.contains("Online")) {
+                                Color(0xFF103A2E)
+                            } else {
+                                Color(0xFF3A1719)
+                            },
                         shape = RoundedCornerShape(50)
                     ) {
                         Text(
-                            if (state.apiStatus.contains("Online")) "● LIVE" else "● OFFLINE",
-                            color = if (state.apiStatus.contains("Online")) NkiriAccent else NkiriDanger,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            if (state.apiStatus.contains("Online")) {
+                                "● LIVE"
+                            } else {
+                                "● OFFLINE"
+                            },
+                            color =
+                                if (state.apiStatus.contains("Online")) {
+                                    NkiriAccent
+                                } else {
+                                    NkiriDanger
+                                },
+                            modifier = Modifier.padding(
+                                horizontal = 10.dp,
+                                vertical = 6.dp
+                            ),
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -185,69 +229,190 @@ private fun homeScreen(
                     value = state.query,
                     onValueChange = onQueryChange,
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Search movies, series, K-Drama…", color = NkiriMuted) },
-                    leadingIcon = { Text("⌕", color = NkiriMuted) },
+                    placeholder = {
+                        Text(
+                            "Search movies, series, actors…",
+                            color = NkiriMuted
+                        )
+                    },
+                    leadingIcon = {
+                        Text("⌕", color = NkiriMuted)
+                    },
                     singleLine = true,
                     shape = RoundedCornerShape(18.dp),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedTextColor = NkiriText,
-                        unfocusedTextColor = NkiriText,
-                        cursorColor = NkiriAccent,
-                        focusedBorderColor = NkiriAccent,
-                        unfocusedBorderColor = NkiriOutline,
-                        focusedContainerColor = NkiriSurface,
-                        unfocusedContainerColor = NkiriSurface
-                    )
+                    keyboardOptions =
+                        KeyboardOptions(
+                            imeAction = ImeAction.Search
+                        ),
+                    keyboardActions =
+                        KeyboardActions(
+                            onSearch = { onSearch() }
+                        ),
+                    colors =
+                        OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = NkiriText,
+                            unfocusedTextColor = NkiriText,
+                            cursorColor = NkiriAccent,
+                            focusedBorderColor = NkiriAccent,
+                            unfocusedBorderColor = NkiriOutline,
+                            focusedContainerColor = NkiriSurface,
+                            unfocusedContainerColor = NkiriSurface
+                        )
                 )
 
                 LazyRow(
                     modifier = Modifier.padding(top = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement =
+                        Arrangement.spacedBy(8.dp)
                 ) {
-                    item { browseChip("Discover") { onLatest("all", "Discover") } }
-                    item { browseChip("Movies") { onLatest("movie", "Movies") } }
-                    item { browseChip("Series") { onLatest("series", "Series") } }
-                    item { browseChip("K-Drama") { onLatest("drama", "K-Drama") } }
+                    item {
+                        browseChip("Home") {
+                            onLatest("all", "Discover")
+                        }
+                    }
+                    item {
+                        browseChip("Movies") {
+                            onLatest("movie", "Movies")
+                        }
+                    }
+                    item {
+                        browseChip("Series") {
+                            onLatest("series", "Series")
+                        }
+                    }
+                    item {
+                        browseChip("K-Drama") {
+                            onLatest("drama", "K-Drama")
+                        }
+                    }
                 }
             }
         }
 
         if (state.continueWatching.isNotEmpty()) {
             item {
-                sectionHeader("Continue Watching", "Pick up where you stopped")
+                sectionHeader(
+                    "Continue Watching",
+                    "Pick up where you stopped"
+                )
+
                 LazyRow(
-                    contentPadding = PaddingValues(horizontal = 16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    contentPadding =
+                        PaddingValues(horizontal = 16.dp),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(12.dp)
                 ) {
-                    items(state.continueWatching.take(10)) { item ->
-                        continueCard(item) { onResume(item) }
+                    items(
+                        state.continueWatching.take(10)
+                    ) { item ->
+                        continueCard(item) {
+                            onResume(item)
+                        }
                     }
                 }
             }
         }
 
         if (featured != null) {
-            item { heroCard(featured) { onOpenTitle(featured) } }
-        }
-
-        item { sectionHeader(state.sectionTitle.ifBlank { "Discover" }, "${state.results.size} titles") }
-
-        items(rest.chunked(2)) { row ->
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                row.forEach { item ->
-                    posterCard(item, Modifier.weight(1f)) { onOpenTitle(item) }
+            item {
+                heroCard(featured) {
+                    onOpenTitle(featured)
                 }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
 
-        if (state.results.isEmpty() && !state.loading) {
-            item { emptyState("Nothing here yet", "Try another search or category.") }
+        if (!browsingSection &&
+            state.homeSections.isNotEmpty()
+        ) {
+            state.homeSections.forEach { section ->
+                if (section.items.isNotEmpty()) {
+                    item {
+                        sectionHeader(
+                            section.title,
+                            section.subtitle
+                        )
+
+                        LazyRow(
+                            contentPadding =
+                                PaddingValues(
+                                    horizontal = 14.dp
+                                ),
+                            horizontalArrangement =
+                                Arrangement.spacedBy(10.dp)
+                        ) {
+                            items(
+                                section.items,
+                                key = {
+                                    "${section.id}:${it.id}"
+                                }
+                            ) { item ->
+                                posterCard(
+                                    item,
+                                    Modifier.width(160.dp)
+                                ) {
+                                    onOpenTitle(item)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            item {
+                sectionHeader(
+                    state.sectionTitle.ifBlank {
+                        "Discover"
+                    },
+                    "${state.results.size} titles"
+                )
+            }
+
+            items(
+                state.results
+                    .drop(
+                        if (featured != null) 1
+                        else 0
+                    )
+                    .chunked(2)
+            ) { row ->
+                Row(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(
+                                horizontal = 12.dp,
+                                vertical = 6.dp
+                            ),
+                    horizontalArrangement =
+                        Arrangement.spacedBy(10.dp)
+                ) {
+                    row.forEach { item ->
+                        posterCard(
+                            item,
+                            Modifier.weight(1f)
+                        ) {
+                            onOpenTitle(item)
+                        }
+                    }
+
+                    if (row.size == 1) {
+                        Spacer(Modifier.weight(1f))
+                    }
+                }
+            }
+        }
+
+        if (
+            state.homeSections.isEmpty() &&
+            state.results.isEmpty() &&
+            !state.loading
+        ) {
+            item {
+                emptyState(
+                    "Nothing here yet",
+                    "Try another search or category."
+                )
+            }
         }
     }
 }
@@ -706,108 +871,376 @@ private fun libraryScreen(items: List<FavoriteItem>, onOpen: (FavoriteItem) -> U
 }
 
 @Composable
-private fun downloadsScreen(downloads: List<DownloadRecord>, onClear: () -> Unit) {
+private fun downloadsScreen(
+    downloads: List<DownloadRecord>,
+    onClear: () -> Unit
+) {
     val context = LocalContext.current
-    var snapshots by remember { mutableStateOf<Map<Long, DownloadSnapshot>>(emptyMap()) }
 
-    LaunchedEffect(downloads) {
-        while (true) {
-            snapshots = downloads.mapNotNull { record ->
-                queryDownloadSnapshot(context, record.downloadId)?.let { record.downloadId to it }
-            }.toMap()
-            delay(1000)
-        }
-    }
+    val managed by
+        ManagedDownloads
+            .state(context)
+            .collectAsStateWithLifecycle()
 
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        verticalArrangement =
+            Arrangement.spacedBy(10.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(
+                verticalAlignment =
+                    Alignment.CenterVertically
+            ) {
                 Column(Modifier.weight(1f)) {
-                    pageTitle("Downloads", "Watch offline inside TheNkiri")
+                    pageTitle(
+                        "Downloads",
+                        "Pause, resume and watch offline"
+                    )
                 }
-                if (downloads.isNotEmpty()) {
-                    TextButton(onClick = onClear) { Text("Clear", color = NkiriMuted) }
+
+                if (
+                    managed.any {
+                        it.status ==
+                            ManagedDownloadStatus.COMPLETED
+                    }
+                ) {
+                    TextButton(
+                        onClick = {
+                            ManagedDownloads
+                                .clearCompleted(context)
+                            onClear()
+                        }
+                    ) {
+                        Text(
+                            "Clear done",
+                            color = NkiriMuted
+                        )
+                    }
                 }
             }
         }
 
-        if (downloads.isEmpty()) {
-            item { emptyState("No downloads yet", "Downloaded movies and episodes will appear here.") }
+        if (managed.isEmpty()) {
+            item {
+                emptyState(
+                    "No downloads yet",
+                    "Choose a quality and save it for offline watching."
+                )
+            }
         }
 
-        items(downloads, key = { it.downloadId }) { record ->
-            val snap = snapshots[record.downloadId]
+        items(
+            managed,
+            key = { it.id }
+        ) { task ->
             Surface(
-                modifier = Modifier.fillMaxWidth(),
+                modifier =
+                    Modifier.fillMaxWidth(),
                 color = NkiriSurface,
                 shape = CardShape,
-                border = BorderStroke(1.dp, NkiriOutline)
+                border =
+                    BorderStroke(
+                        1.dp,
+                        NkiriOutline
+                    )
             ) {
-                Column(Modifier.padding(15.dp)) {
-                    Text(record.title, color = NkiriText, fontWeight = FontWeight.Bold)
+                Column(
+                    Modifier.padding(15.dp)
+                ) {
+                    Text(
+                        task.title,
+                        color = NkiriText,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 2,
+                        overflow =
+                            TextOverflow.Ellipsis
+                    )
+
                     Text(
                         listOfNotNull(
-                            record.episodeLabel,
-                            record.quality.takeIf { it > 0 }?.let { "${it}p" },
-                            record.sizeText.takeIf { it.isNotBlank() }
+                            task.episodeLabel,
+                            task.quality
+                                .takeIf { it > 0 }
+                                ?.let { "${it}p" },
+                            task.sizeText
+                                .takeIf {
+                                    it.isNotBlank()
+                                }
                         ).joinToString(" • "),
                         color = NkiriMuted
                     )
 
-                    snap?.let {
-                        Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(10.dp))
+
+                    Row(
+                        verticalAlignment =
+                            Alignment.CenterVertically
+                    ) {
                         Text(
-                            it.label,
-                            color = when (it.status) {
-                                DownloadManager.STATUS_SUCCESSFUL -> NkiriAccent
-                                DownloadManager.STATUS_FAILED -> NkiriDanger
-                                else -> NkiriMuted
+                            when (task.status) {
+                                ManagedDownloadStatus.QUEUED ->
+                                    "Queued"
+                                ManagedDownloadStatus.RUNNING ->
+                                    "Downloading"
+                                ManagedDownloadStatus.PAUSED ->
+                                    "Paused"
+                                ManagedDownloadStatus.COMPLETED ->
+                                    "Ready offline"
+                                ManagedDownloadStatus.FAILED ->
+                                    "Failed"
                             },
+                            color =
+                                when (task.status) {
+                                    ManagedDownloadStatus.COMPLETED ->
+                                        NkiriAccent
+                                    ManagedDownloadStatus.FAILED ->
+                                        NkiriDanger
+                                    else ->
+                                        NkiriMuted
+                                },
                             fontWeight = FontWeight.Bold
                         )
 
-                        if (it.status == DownloadManager.STATUS_RUNNING ||
-                            it.status == DownloadManager.STATUS_PENDING
-                        ) {
-                            Spacer(Modifier.height(8.dp))
-                            LinearProgressIndicator(
-                                progress = { it.progress },
-                                modifier = Modifier.fillMaxWidth(),
-                                color = NkiriAccent,
-                                trackColor = NkiriSurfaceHigh
+                        Spacer(Modifier.weight(1f))
+
+                        if (task.totalBytes > 0L) {
+                            Text(
+                                "${(task.progress * 100f).toInt()}%",
+                                color = NkiriMuted
+                            )
+                        }
+                    }
+
+                    if (
+                        task.status ==
+                            ManagedDownloadStatus.RUNNING ||
+                        task.status ==
+                            ManagedDownloadStatus.QUEUED ||
+                        task.status ==
+                            ManagedDownloadStatus.PAUSED
+                    ) {
+                        Spacer(Modifier.height(8.dp))
+
+                        LinearProgressIndicator(
+                            progress = {
+                                task.progress
+                            },
+                            modifier =
+                                Modifier.fillMaxWidth(),
+                            color = NkiriAccent,
+                            trackColor =
+                                NkiriSurfaceHigh
+                        )
+                    }
+
+                    task.error
+                        ?.takeIf {
+                            it.isNotBlank()
+                        }
+                        ?.let { error ->
+                            Text(
+                                error,
+                                color = NkiriDanger,
+                                modifier =
+                                    Modifier.padding(
+                                        top = 8.dp
+                                    )
                             )
                         }
 
-                        Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(12.dp))
 
-                        if (it.status == DownloadManager.STATUS_SUCCESSFUL) {
+                    when (task.status) {
+                        ManagedDownloadStatus.RUNNING,
+                        ManagedDownloadStatus.QUEUED -> {
+                            Row(
+                                horizontalArrangement =
+                                    Arrangement.spacedBy(
+                                        8.dp
+                                    )
+                            ) {
+                                Button(
+                                    onClick = {
+                                        ManagedDownloads
+                                            .pause(
+                                                context,
+                                                task.id
+                                            )
+                                    },
+                                    modifier =
+                                        Modifier.weight(1f),
+                                    colors =
+                                        ButtonDefaults
+                                            .buttonColors(
+                                                containerColor =
+                                                    NkiriAccentSoft,
+                                                contentColor =
+                                                    NkiriAccent
+                                            )
+                                ) {
+                                    Text("Pause")
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        ManagedDownloads
+                                            .cancel(
+                                                context,
+                                                task.id
+                                            )
+                                    },
+                                    modifier =
+                                        Modifier.weight(1f),
+                                    border =
+                                        BorderStroke(
+                                            1.dp,
+                                            NkiriOutline
+                                        )
+                                ) {
+                                    Text(
+                                        "Cancel",
+                                        color = NkiriDanger
+                                    )
+                                }
+                            }
+                        }
+
+                        ManagedDownloadStatus.PAUSED -> {
+                            Row(
+                                horizontalArrangement =
+                                    Arrangement.spacedBy(
+                                        8.dp
+                                    )
+                            ) {
+                                Button(
+                                    onClick = {
+                                        ManagedDownloads
+                                            .resume(
+                                                context,
+                                                task.id
+                                            )
+                                    },
+                                    modifier =
+                                        Modifier.weight(1f),
+                                    colors =
+                                        ButtonDefaults
+                                            .buttonColors(
+                                                containerColor =
+                                                    NkiriAccent,
+                                                contentColor =
+                                                    Color(
+                                                        0xFF002117
+                                                    )
+                                            )
+                                ) {
+                                    Text("Resume")
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        ManagedDownloads
+                                            .cancel(
+                                                context,
+                                                task.id
+                                            )
+                                    },
+                                    modifier =
+                                        Modifier.weight(1f),
+                                    border =
+                                        BorderStroke(
+                                            1.dp,
+                                            NkiriOutline
+                                        )
+                                ) {
+                                    Text(
+                                        "Delete",
+                                        color = NkiriDanger
+                                    )
+                                }
+                            }
+                        }
+
+                        ManagedDownloadStatus.FAILED -> {
+                            Row(
+                                horizontalArrangement =
+                                    Arrangement.spacedBy(
+                                        8.dp
+                                    )
+                            ) {
+                                Button(
+                                    onClick = {
+                                        ManagedDownloads
+                                            .retry(
+                                                context,
+                                                task.id
+                                            )
+                                    },
+                                    modifier =
+                                        Modifier.weight(1f),
+                                    colors =
+                                        ButtonDefaults
+                                            .buttonColors(
+                                                containerColor =
+                                                    NkiriAccent,
+                                                contentColor =
+                                                    Color(
+                                                        0xFF002117
+                                                    )
+                                            )
+                                ) {
+                                    Text("Retry")
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        ManagedDownloads
+                                            .cancel(
+                                                context,
+                                                task.id
+                                            )
+                                    },
+                                    modifier =
+                                        Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        "Delete",
+                                        color = NkiriDanger
+                                    )
+                                }
+                            }
+                        }
+
+                        ManagedDownloadStatus.COMPLETED -> {
                             Button(
                                 onClick = {
-                                    runCatching { openCompletedDownload(context, record) }
+                                    runCatching {
+                                        ManagedDownloads
+                                            .play(
+                                                context,
+                                                task
+                                            )
+                                    }
                                 },
-                                modifier = Modifier.fillMaxWidth(),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = NkiriAccent,
-                                    contentColor = Color(0xFF002117)
+                                modifier =
+                                    Modifier.fillMaxWidth(),
+                                colors =
+                                    ButtonDefaults
+                                        .buttonColors(
+                                            containerColor =
+                                                NkiriAccent,
+                                            contentColor =
+                                                Color(
+                                                    0xFF002117
+                                                )
+                                        )
+                            ) {
+                                Text(
+                                    "▶ Watch in TheNkiri",
+                                    fontWeight =
+                                        FontWeight.Black
                                 )
-                            ) {
-                                Text("▶ Watch in TheNkiri", fontWeight = FontWeight.Black)
-                            }
-                        } else if (
-                            it.status == DownloadManager.STATUS_RUNNING ||
-                            it.status == DownloadManager.STATUS_PENDING ||
-                            it.status == DownloadManager.STATUS_PAUSED
-                        ) {
-                            OutlinedButton(
-                                onClick = { cancelDownload(context, record.downloadId) },
-                                modifier = Modifier.fillMaxWidth(),
-                                border = BorderStroke(1.dp, NkiriOutline)
-                            ) {
-                                Text("Cancel download", color = NkiriDanger)
                             }
                         }
                     }

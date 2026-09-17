@@ -5,3 +5,7 @@
 -dontwarn okhttp3.**
 -dontwarn okio.**
 -dontwarn javax.annotation.**
+
+# libVLC JNI/reflection
+-keep class org.videolan.** { *; }
+-dontwarn org.videolan.**

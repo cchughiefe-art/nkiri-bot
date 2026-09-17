@@ -22,8 +22,8 @@ android {
         applicationId = "com.nkiridown.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 5
-        versionName = "2.3.0"
+        versionCode = 6
+        versionName = "3.0.0"
 
         buildConfigField(
             "String",
@@ -104,10 +104,8 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("org.videolan.android:libvlc-all:3.7.6")
 
-    implementation("androidx.media3:media3-exoplayer:1.5.1")
-    implementation("androidx.media3:media3-ui:1.5.1")
-    implementation("androidx.media3:media3-common:1.5.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

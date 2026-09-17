@@ -6,5 +6,6 @@ class NkiriApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         LocalCrashReporter.install(this)
+        ManagedDownloads.initialize(this)
     }
 }

@@ -34,6 +34,7 @@ data class UiState(
     val apiStatus: String = "Checking API…",
     val apiBaseUrl: String = "",
     val results: List<SearchItem> = emptyList(),
+    val homeSections: List<HomeSection> = emptyList(),
     val recommendations: List<SearchItem> = emptyList(),
     val sectionTitle: String = "Discover",
     val title: TitleInfo? = null,
@@ -126,6 +127,13 @@ class MainViewModel(
                             }
                         }
 
+                    val home =
+                        async {
+                            runCatching {
+                                api.home()
+                            }
+                        }
+
                     health.await()
                         .onSuccess {
                             _state.value =
@@ -166,6 +174,23 @@ class MainViewModel(
                                         error =
                                             it.message
                                                 ?: "Could not load the catalog."
+                                    )
+                            }
+                        }
+
+                    home.await()
+                        .onSuccess { sections ->
+                            if (sections.isNotEmpty()) {
+                                _state.value =
+                                    _state.value.copy(
+                                        homeSections = sections,
+                                        results =
+                                            sections
+                                                .firstOrNull()
+                                                ?.items
+                                                .orEmpty(),
+                                        sectionTitle =
+                                            "Discover"
                                     )
                             }
                         }

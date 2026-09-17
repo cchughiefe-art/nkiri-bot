@@ -301,6 +301,75 @@ async function sourcesFor(id, season = 0, episode = 0, quality = 0) {
   return { provider: "thenkiri", sources: resolved, selected };
 }
 
+
+async function buildHomePayload() {
+  const cacheKey = "home:v3:genre-rails";
+  const cached = getCached(cacheKey);
+  if (cached) return cached;
+
+  const safe = async loader => {
+    try {
+      const result = await loader();
+      return Array.isArray(result?.results) ? result.results : [];
+    } catch (error) {
+      console.error("HOME SECTION ERROR:", error.message);
+      return [];
+    }
+  };
+
+  const specs = [
+    { id: "trending", title: "Trending Now", subtitle: "Popular picks right now", load: () => getLatest("all", { page: 1, perPage: 8 }) },
+    { id: "nollywood", title: "Nollywood", subtitle: "Nigerian movies and series", load: () => searchNkiri("Nollywood", { page: 1, perPage: 8 }) },
+    { id: "new-movies", title: "New Movies", subtitle: "Recently added films", load: () => getLatest("movie", { page: 1, perPage: 8 }) },
+    { id: "action", title: "Action", subtitle: "Fast, loud and high-stakes", load: () => searchNkiri("Action", { page: 1, perPage: 8 }) },
+    { id: "comedy", title: "Comedy", subtitle: "Easy laughs", load: () => searchNkiri("Comedy", { page: 1, perPage: 8 }) },
+    { id: "drama", title: "Drama", subtitle: "Big stories and strong characters", load: () => searchNkiri("Drama", { page: 1, perPage: 8 }) },
+    { id: "romance", title: "Romance", subtitle: "Love stories", load: () => searchNkiri("Romance", { page: 1, perPage: 8 }) },
+    { id: "thriller", title: "Thriller", subtitle: "Tense from start to finish", load: () => searchNkiri("Thriller", { page: 1, perPage: 8 }) },
+    { id: "horror", title: "Horror", subtitle: "Dark nights and jump scares", load: () => searchNkiri("Horror", { page: 1, perPage: 8 }) },
+    { id: "scifi", title: "Sci-Fi", subtitle: "Future worlds and impossible ideas", load: () => searchNkiri("Science Fiction", { page: 1, perPage: 8 }) },
+    { id: "kdrama", title: "Korean Drama", subtitle: "K-Drama in its own section", load: () => getLatest("drama", { page: 1, perPage: 8 }) },
+    { id: "series", title: "TV Series", subtitle: "Binge-worthy shows", load: () => getLatest("series", { page: 1, perPage: 8 }) }
+  ];
+
+  const rawSections = await Promise.all(
+    specs.map(async spec => ({
+      ...spec,
+      items: await safe(spec.load)
+    }))
+  );
+
+  const sections = rawSections
+    .map(section => {
+      const seen = new Set();
+      const items = section.items
+        .map(toSearchItem)
+        .filter(Boolean)
+        .filter(item => {
+          if (seen.has(item.id)) return false;
+          seen.add(item.id);
+          return true;
+        })
+        .slice(0, 8);
+
+      return {
+        id: section.id,
+        title: section.title,
+        subtitle: section.subtitle,
+        items
+      };
+    })
+    .filter(section => section.items.length);
+
+  return setCached(
+    cacheKey,
+    {
+      sections,
+      generatedAt: new Date().toISOString()
+    }
+  );
+}
+
 async function handle(req, res) {
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
@@ -327,6 +396,10 @@ async function handle(req, res) {
       providers: ["thenkiri", "moviex"],
       time: new Date().toISOString()
     });
+  }
+
+  if (path === "/api/home") {
+    return ok(res, await buildHomePayload());
   }
 
   if (path === "/api/search") {

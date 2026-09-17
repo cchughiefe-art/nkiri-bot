@@ -196,6 +196,36 @@ class NkiriApi(
         return array.toSearchItems()
     }
 
+    suspend fun home(): List<HomeSection> {
+        val data =
+            get("/api/home")
+                .getJSONObject("data")
+
+        val sections =
+            data.optJSONArray("sections")
+                ?: JSONArray()
+
+        return buildList {
+            for (index in 0 until sections.length()) {
+                val section =
+                    sections.getJSONObject(index)
+
+                add(
+                    HomeSection(
+                        id = section.optString("id"),
+                        title = section.optString("title"),
+                        subtitle = section.optString("subtitle"),
+                        items =
+                            (
+                                section.optJSONArray("items")
+                                    ?: JSONArray()
+                            ).toSearchItems()
+                    )
+                )
+            }
+        }
+    }
+
     suspend fun latest(
         type: String
     ): List<SearchItem> {
