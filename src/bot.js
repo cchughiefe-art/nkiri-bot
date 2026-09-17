@@ -533,6 +533,13 @@ function homeKeyboard() {
       ],
       [
         {
+          text: "✨ What's New",
+          callback_data:
+            "home:whatsnew"
+        }
+      ],
+      [
+        {
           text: "⚠️ Report a Problem",
           callback_data:
             "report:menu"
@@ -1882,6 +1889,45 @@ bot.on(
             query.message.message_id,
           reply_markup:
             homeKeyboard()
+        }
+      );
+
+      return;
+    }
+
+    if (
+      data === "home:whatsnew"
+    ) {
+      await bot.answerCallbackQuery(
+        query.id
+      );
+
+      await bot.editMessageText(
+        "✨ What's New in TheNkiri\n\n" +
+        "✅ More movie and series sources\n" +
+        "✅ Better backup download servers\n" +
+        "✅ Improved movie and episode detection\n" +
+        "✅ Better download link generation\n" +
+        "✅ Improved resumable downloads\n" +
+        "✅ Better fallback when one server fails\n" +
+        "✅ More improvements are coming\n\n" +
+        "Updated: 17 September 2026",
+        {
+          chat_id:
+            chatId,
+          message_id:
+            query.message.message_id,
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: "🏠 Home",
+                  callback_data:
+                    "home:menu"
+                }
+              ]
+            ]
+          }
         }
       );
 
