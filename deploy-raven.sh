@@ -34,10 +34,10 @@ cd $REMOTE
 put launcher.ts
 put package.json
 put package-lock.json
-put src/bot.js
-put src/core/store.js
-put src/nkiri/search.js
-put src/nkiri/discover.js
+put src/bot.js /home/container/src/bot.js
+put src/core/store.js /home/container/src/core/store.js
+put src/nkiri/search.js /home/container/src/nkiri/search.js
+put src/nkiri/discover.js /home/container/src/nkiri/discover.js
 bye
 EOF2
 

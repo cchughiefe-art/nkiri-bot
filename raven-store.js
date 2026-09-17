@@ -316,7 +316,8 @@ function getAnalytics() {
 
   for (const item of downloads) {
     const title =
-      item.title || "Unknown";
+      item.title ||
+      "Unknown";
 
     titleCounts[title] =
       (titleCounts[title] || 0) + 1;
@@ -336,15 +337,6 @@ function getAnalytics() {
         })
       );
 
-  const recentUsers =
-    [...users]
-      .sort(
-        (a, b) =>
-          (b.lastSeenAt || 0) -
-          (a.lastSeenAt || 0)
-      )
-      .slice(0, 20);
-
   return {
     totalUsers:
       users.length,
@@ -363,104 +355,8 @@ function getAnalytics() {
     recentDownloads:
       downloads
         .slice(-10)
-        .reverse(),
-    recentUsers
+        .reverse()
   };
-}
-
-function getUser(userId) {
-  const data = readStore();
-
-  return (
-    data.users?.[
-      String(userId)
-    ] || null
-  );
-}
-
-function grantShareAccess(
-  userId,
-  dateKey
-) {
-  const data = readStore();
-
-  data.users ||= {};
-
-  const key =
-    String(userId);
-
-  const user =
-    data.users[key] || {
-      id: userId,
-      firstSeenAt: Date.now(),
-      lastSeenAt: Date.now(),
-      searches: 0,
-      downloads: 0,
-      reports: 0
-    };
-
-  user.shareCredits = 1;
-  user.lastShareDate = dateKey;
-  user.lastSharedAt = Date.now();
-
-  data.users[key] = user;
-
-  writeStore(data);
-}
-
-function hasShareAccess(
-  userId,
-  dateKey,
-  mode = "every"
-) {
-  const user =
-    getUser(userId);
-
-  if (!user)
-    return false;
-
-  if (mode === "daily") {
-    return (
-      user.lastShareDate ===
-      dateKey
-    );
-  }
-
-  return (
-    Number(
-      user.shareCredits || 0
-    ) > 0
-  );
-}
-
-function consumeShareAccess(
-  userId,
-  mode = "every"
-) {
-  if (mode === "daily")
-    return true;
-
-  const data = readStore();
-
-  const user =
-    data.users?.[
-      String(userId)
-    ];
-
-  if (
-    !user ||
-    Number(
-      user.shareCredits || 0
-    ) < 1
-  ) {
-    return false;
-  }
-
-  user.shareCredits = 0;
-
-  writeStore(data);
-
-  return true;
 }
 
 function cleanup() {
@@ -494,9 +390,5 @@ module.exports = {
   incrementUserStat,
   trackDownload,
   getAnalytics,
-  getUser,
-  grantShareAccess,
-  hasShareAccess,
-  consumeShareAccess,
   cleanup
 };

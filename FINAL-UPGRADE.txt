@@ -1,0 +1,22 @@
+TheNkiri final launch upgrade
+
+Included:
+- First-time Android/iPhone device onboarding
+- VLC guide for Android and Infuse guide for iPhone/iPad
+- /device command
+- Mandatory @voidupdatezone membership before downloads
+- Daily share unlock using referral links
+- Referral attribution and top-referrer analytics
+- Enhanced /stats and /user TELEGRAM_ID
+- Daily private backup of store.json and ux.json to the admin Telegram chat
+- /backup manual backup
+- /maintenance on|off|status
+- Better failed-download recovery buttons
+- Device-specific playback tips after successful link generation
+- /help and /privacy
+- Persistent /resume progress across restarts where the saved item can be reconstructed
+
+Important:
+- Make the bot an administrator in @voidupdatezone so getChatMember is reliable.
+- Telegram cannot prove the user completed the Share dialog; the "I Shared" button is the confirmation step.
+- Do not commit .env, data/store.json, data/ux.json, or data backups to GitHub.
