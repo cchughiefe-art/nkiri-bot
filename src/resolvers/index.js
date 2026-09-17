@@ -4,6 +4,14 @@ const {
 } = require("./downloadwella");
 
 const {
+  resolveWideShares
+} = require("./wideshares");
+
+const {
+  resolveSabiShares
+} = require("./sabishares");
+
+const {
   isMovieXMediaUrl,
   resolveMovieXUrl
 } = require("../providers/moviex");
@@ -27,6 +35,20 @@ function classifyDownload(url) {
     host.endsWith(".downloadwella.com")
   ) {
     return "downloadwella";
+  }
+
+  if (
+    host === "wideshares.org" ||
+    host.endsWith(".wideshares.org")
+  ) {
+    return "wideshares";
+  }
+
+  if (
+    host === "sabishares.com" ||
+    host.endsWith(".sabishares.com")
+  ) {
+    return "sabishares";
   }
 
   if (
@@ -63,6 +85,26 @@ async function resolveDownload(input) {
   for (const url of urls) {
     if (isMovieXMediaUrl(url)) {
       return await resolveMovieXUrl(url);
+    }
+  }
+
+  /*
+   * Authorized FZMovies delivery hosts.
+   */
+  for (const url of urls) {
+    const type =
+      classifyDownload(url);
+
+    if (type === "wideshares") {
+      return await resolveWideShares(
+        url
+      );
+    }
+
+    if (type === "sabishares") {
+      return await resolveSabiShares(
+        url
+      );
     }
   }
 
