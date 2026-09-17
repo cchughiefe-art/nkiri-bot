@@ -32,6 +32,15 @@ const {
 } = require("./resolvers");
 
 const {
+  searchFzForBot,
+  latestFzForBot,
+  isFzUrl,
+  fzIdFromUrl,
+  getFzBotTitle,
+  resolveFzSource
+} = require("./core/fzmovies-bot");
+
+const {
   cleanTitle
 } = require("./core/media");
 
@@ -581,7 +590,11 @@ function resultKeyboard(
             item.cleanTitle ||
             item.title,
           type:
-            item.type || null
+            item.type || null,
+          provider:
+            item.provider || null,
+          fzId:
+            item.fzId || null
         }
       );
 
@@ -648,6 +661,47 @@ async function renderSearch(
           PAGE_SIZE
       }
     );
+
+  try {
+    const fz =
+      await searchFzForBot(
+        query,
+        PAGE_SIZE
+      );
+
+    if (fz.length) {
+      const seen =
+        new Set(
+          result.results.map(
+            item =>
+              `${item.provider || "thenkiri"}:${item.url}`
+          )
+        );
+
+      for (const item of fz) {
+        const key =
+          `fzmovies:${item.url}`;
+
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.results.push(item);
+        }
+      }
+
+      result.total =
+        result.results.length;
+
+      result.pages = 1;
+      result.page = 1;
+      result.hasPrevious = false;
+      result.hasNext = false;
+    }
+  } catch (error) {
+    console.error(
+      "FZMOVIES BOT SEARCH ERROR:",
+      error.message
+    );
+  }
 
   if (!result.results.length) {
     const text =
@@ -2038,6 +2092,184 @@ bot.on(
         );
 
       try {
+        if (
+          item.provider === "fzmovies" ||
+          isFzUrl(item.url)
+        ) {
+          const fzId =
+            item.fzId ||
+            fzIdFromUrl(
+              item.url
+            );
+
+          const fz =
+            await getFzBotTitle(
+              fzId
+            );
+
+          await bot.deleteMessage(
+            chatId,
+            status.message_id
+          ).catch(() => {});
+
+          /*
+           * FZMOVIES SERIES
+           */
+          if (
+            fz.type === "series" &&
+            Array.isArray(fz.episodes) &&
+            fz.episodes.length
+          ) {
+            const buttons = [];
+
+            for (
+              const episode
+              of fz.episodes
+            ) {
+              buttons.push([
+                {
+                  text:
+                    `▶️ ${episode.label}`,
+                  callback_data:
+                    create(
+                      "fzepisode",
+                      {
+                        title:
+                          fz.cleanTitle ||
+                          fz.title,
+                        label:
+                          episode.label,
+                        sources:
+                          episode.sources || []
+                      }
+                    )
+                }
+              ]);
+            }
+
+            buttons.push([
+              {
+                text:
+                  "🔎 Search Again",
+                callback_data:
+                  "home:search"
+              },
+              {
+                text:
+                  "🏠 Home",
+                callback_data:
+                  "home:menu"
+              }
+            ]);
+
+            const caption =
+              `📺 ${fz.cleanTitle || fz.title}\n\n` +
+              `${fz.episodes.length} episode(s) found.\n` +
+              "Choose an episode:";
+
+            if (fz.image) {
+              await bot.sendPhoto(
+                chatId,
+                fz.image,
+                {
+                  caption,
+                  reply_markup: {
+                    inline_keyboard:
+                      buttons
+                  }
+                }
+              );
+            } else {
+              await bot.sendMessage(
+                chatId,
+                caption,
+                {
+                  reply_markup: {
+                    inline_keyboard:
+                      buttons
+                  }
+                }
+              );
+            }
+
+            return;
+          }
+
+          /*
+           * FZMOVIES MOVIE
+           */
+          const downloadCallback =
+            create(
+              "fzdownload",
+              {
+                title:
+                  fz.cleanTitle ||
+                  fz.title,
+                sources:
+                  fz.downloadLinks || []
+              }
+            );
+
+          const caption =
+            `🎬 ${fz.cleanTitle || fz.title}\n\n` +
+            (
+              fz.description
+                ? `${fz.description}\n\n`
+                : ""
+            ) +
+            "Tap below to generate a fresh download link.";
+
+          const keyboard = {
+            inline_keyboard: [
+              [
+                {
+                  text:
+                    "⬇️ Download Movie",
+                  callback_data:
+                    downloadCallback
+                }
+              ],
+              [
+                {
+                  text:
+                    "🔎 Search Again",
+                  callback_data:
+                    "home:search"
+                },
+                {
+                  text:
+                    "🏠 Home",
+                  callback_data:
+                    "home:menu"
+                }
+              ]
+            ]
+          };
+
+          if (fz.image) {
+            await bot.sendPhoto(
+              chatId,
+              fz.image,
+              {
+                caption,
+                reply_markup:
+                  keyboard
+              }
+            );
+          } else {
+            await bot.sendMessage(
+              chatId,
+              caption,
+              {
+                reply_markup:
+                  keyboard
+              }
+            );
+          }
+
+          return;
+        }
+
         const series =
           await parseSeriesPage(
             item.url
@@ -2716,6 +2948,252 @@ bot.on(
           }
         }
       );
+
+      return;
+    }
+
+    /*
+     * FZMOVIES EPISODE DOWNLOAD
+     */
+    if (
+      data.startsWith(
+        "fzepisode:"
+      )
+    ) {
+      const item =
+        get(
+          data,
+          "fzepisode"
+        );
+
+      if (!item) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "This episode selection expired."
+          }
+        );
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id,
+        {
+          text:
+            "Generating download link..."
+        }
+      );
+
+      const status =
+        await bot.sendMessage(
+          chatId,
+          "Generating a fresh FZMovies episode link..."
+        );
+
+      try {
+        let resolved = null;
+
+        for (
+          const source
+          of item.sources || []
+        ) {
+          try {
+            resolved =
+              await resolveFzSource(
+                source
+              );
+
+            if (
+              resolved?.directUrl
+            ) {
+              break;
+            }
+          } catch (error) {
+            console.error(
+              "FZMOVIES MIRROR ERROR:",
+              error.message
+            );
+          }
+        }
+
+        if (!resolved?.directUrl) {
+          throw new Error(
+            "No working episode source"
+          );
+        }
+
+        await bot.editMessageText(
+          `📺 ${item.title}\n` +
+          `${item.label}\n\n` +
+          "Your download link is ready.",
+          {
+            chat_id:
+              chatId,
+            message_id:
+              status.message_id,
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text:
+                      "⬇️ Download Episode",
+                    url:
+                      resolved.directUrl
+                  }
+                ],
+                [
+                  {
+                    text:
+                      "🏠 Home",
+                    callback_data:
+                      "home:menu"
+                  }
+                ]
+              ]
+            }
+          }
+        );
+
+      } catch (error) {
+        console.error(
+          "FZMOVIES EPISODE ERROR:",
+          error
+        );
+
+        await bot.editMessageText(
+          "❌ No working FZMovies episode mirror is available right now.",
+          {
+            chat_id:
+              chatId,
+            message_id:
+              status.message_id
+          }
+        );
+      }
+
+      return;
+    }
+
+    /*
+     * FZMOVIES MOVIE DOWNLOAD
+     */
+    if (
+      data.startsWith(
+        "fzdownload:"
+      )
+    ) {
+      const item =
+        get(
+          data,
+          "fzdownload"
+        );
+
+      if (!item) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "This download request expired."
+          }
+        );
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id,
+        {
+          text:
+            "Generating download link..."
+        }
+      );
+
+      const status =
+        await bot.sendMessage(
+          chatId,
+          "Generating a fresh FZMovies download link..."
+        );
+
+      try {
+        let resolved = null;
+
+        for (
+          const source
+          of item.sources || []
+        ) {
+          try {
+            resolved =
+              await resolveFzSource(
+                source
+              );
+
+            if (
+              resolved?.directUrl
+            ) {
+              break;
+            }
+          } catch (error) {
+            console.error(
+              "FZMOVIES MIRROR ERROR:",
+              error.message
+            );
+          }
+        }
+
+        if (!resolved?.directUrl) {
+          throw new Error(
+            "No working movie source"
+          );
+        }
+
+        await bot.editMessageText(
+          `🎬 ${item.title}\n\n` +
+          "Your download link is ready.\n" +
+          "Start it now because temporary links can expire.",
+          {
+            chat_id:
+              chatId,
+            message_id:
+              status.message_id,
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text:
+                      "⬇️ Download Movie",
+                    url:
+                      resolved.directUrl
+                  }
+                ],
+                [
+                  {
+                    text:
+                      "🏠 Home",
+                    callback_data:
+                      "home:menu"
+                  }
+                ]
+              ]
+            }
+          }
+        );
+
+      } catch (error) {
+        console.error(
+          "FZMOVIES MOVIE ERROR:",
+          error
+        );
+
+        await bot.editMessageText(
+          "❌ No working FZMovies download mirror is available right now.",
+          {
+            chat_id:
+              chatId,
+            message_id:
+              status.message_id
+          }
+        );
+      }
 
       return;
     }
