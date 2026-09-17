@@ -1,34 +1,39 @@
 package com.nkiridown.app
 
+import android.app.AlertDialog
 import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.net.Uri
 import android.os.Bundle
-import android.os.Handler
-import android.os.Looper
 import android.util.Rational
 import android.view.Gravity
-import android.view.SurfaceView
 import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
-import android.widget.*
+import android.widget.FrameLayout
+import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
+import androidx.media3.common.C
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import org.videolan.libvlc.LibVLC
-import org.videolan.libvlc.Media
-import org.videolan.libvlc.MediaPlayer
 
+@UnstableApi
 class PlayerActivity : ComponentActivity() {
-    private var libVLC: LibVLC? = null
-    private var player: MediaPlayer? = null
-    private var surface: SurfaceView? = null
+    private var player: ExoPlayer? = null
+    private lateinit var playerView: PlayerView
     private var saveJob: Job? = null
 
     private val playbackStore by lazy { PlaybackStore(this) }
@@ -42,22 +47,8 @@ class PlayerActivity : ComponentActivity() {
     private var episode: Int? = null
     private var episodeLabel: String? = null
     private var subtitleUrl: String? = null
-
-    private lateinit var playButton: Button
-    private lateinit var seekBar: SeekBar
-    private lateinit var positionText: TextView
-    private lateinit var durationText: TextView
-    private lateinit var titleText: TextView
-
-    private val handler = Handler(Looper.getMainLooper())
-    private var userSeeking = false
-
-    private val progressTicker = object : Runnable {
-        override fun run() {
-            updateProgressUi()
-            handler.postDelayed(this, 500)
-        }
-    }
+    private var currentMediaUrl: String = ""
+    private var compatibilityDialogShowing = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -67,6 +58,7 @@ class PlayerActivity : ComponentActivity() {
             return
         }
 
+        currentMediaUrl = url
         mediaId = intent.getStringExtra(EXTRA_MEDIA_ID).orEmpty()
         title = intent.getStringExtra(EXTRA_TITLE) ?: "TheNkiri"
         poster = intent.getStringExtra(EXTRA_POSTER)
@@ -80,154 +72,91 @@ class PlayerActivity : ComponentActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemUi()
-
         buildPlayerUi()
 
-        val vlc = LibVLC(
-            this,
-            arrayListOf(
-                "--network-caching=1800",
-                "--file-caching=800",
-                "--clock-jitter=0",
-                "--clock-synchro=0"
-            )
-        )
-        libVLC = vlc
+        val exoPlayer = ExoPlayer.Builder(this).build()
+        player = exoPlayer
+        playerView.player = exoPlayer
 
-        val mp = MediaPlayer(vlc)
-        player = mp
-
-        surface?.let { video ->
-            mp.vlcVout.setVideoView(video)
-            mp.vlcVout.attachViews()
-        }
-
-        mp.setEventListener { event ->
-            runOnUiThread {
-                when (event.type) {
-                    MediaPlayer.Event.Playing -> {
-                        playButton.text = "Pause"
-                    }
-                    MediaPlayer.Event.Paused,
-                    MediaPlayer.Event.Stopped -> {
-                        playButton.text = "Play"
-                    }
-                    MediaPlayer.Event.EndReached -> {
-                        playButton.text = "Play"
+        exoPlayer.addListener(
+            object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    if (playbackState == Player.STATE_ENDED) {
                         saveProgress(completed = true)
                         tryAutoNext()
                     }
                 }
-            }
-        }
 
-        startMedia(url)
-
-        playbackStore.find(mediaId, season, episode)
-            ?.takeIf { !it.completed && it.positionMs > 0L }
-            ?.let { record ->
-                handler.postDelayed({
-                    player?.time = record.positionMs
-                }, 650)
-            }
-
-        playButton.setOnClickListener {
-            val p = player ?: return@setOnClickListener
-            if (p.isPlaying) p.pause() else p.play()
-        }
-
-        findViewById<Button>(ID_BACK_10).setOnClickListener {
-            val p = player ?: return@setOnClickListener
-            p.time = (p.time - 10_000L).coerceAtLeast(0L)
-        }
-
-        findViewById<Button>(ID_FORWARD_10).setOnClickListener {
-            val p = player ?: return@setOnClickListener
-            val length = p.length.takeIf { it > 0L } ?: Long.MAX_VALUE
-            p.time = (p.time + 10_000L).coerceAtMost(length)
-        }
-
-        findViewById<Button>(ID_CLOSE).setOnClickListener {
-            finish()
-        }
-
-        seekBar.setOnSeekBarChangeListener(
-            object : SeekBar.OnSeekBarChangeListener {
-                override fun onStartTrackingTouch(seekBar: SeekBar?) {
-                    userSeeking = true
+                override fun onPlayerError(error: PlaybackException) {
+                    showCompatibilityDialog(
+                        mediaUrl = currentMediaUrl,
+                        reason = error.errorCodeName
+                    )
                 }
-
-                override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                    val p = player
-                    val duration = p?.length ?: 0L
-                    val progress = seekBar?.progress ?: 0
-                    if (p != null && duration > 0L) {
-                        p.time = (duration * progress / 1000L)
-                    }
-                    userSeeking = false
-                }
-
-                override fun onProgressChanged(
-                    seekBar: SeekBar?,
-                    progress: Int,
-                    fromUser: Boolean
-                ) = Unit
             }
         )
 
-        handler.post(progressTicker)
+        val resumePosition =
+            playbackStore
+                .find(mediaId, season, episode)
+                ?.takeIf {
+                    !it.completed &&
+                        it.positionMs > 0L
+                }
+                ?.positionMs
+                ?: 0L
 
-        saveJob = lifecycleScope.launch {
-            while (isActive) {
-                delay(5_000)
-                saveProgress(completed = false)
+        startMedia(url, resumePosition)
+
+        saveJob =
+            lifecycleScope.launch {
+                while (isActive) {
+                    delay(5_000)
+                    saveProgress(completed = false)
+                }
             }
-        }
     }
 
     private fun buildPlayerUi() {
-        val root = FrameLayout(this).apply {
-            setBackgroundColor(android.graphics.Color.BLACK)
-        }
+        val root =
+            FrameLayout(this).apply {
+                setBackgroundColor(
+                    android.graphics.Color.BLACK
+                )
+            }
 
-        val video = SurfaceView(this)
-        surface = video
-        root.addView(
-            video,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.MATCH_PARENT
-            )
-        )
+        playerView =
+            PlayerView(this).apply {
+                layoutParams =
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                useController = true
+                controllerAutoShow = true
+                controllerHideOnTouch = true
+                setShowBuffering(
+                    PlayerView.SHOW_BUFFERING_WHEN_PLAYING
+                )
+                keepScreenOn = true
+            }
 
-        val top = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(18, 12, 18, 12)
-            setBackgroundColor(0x66000000)
-        }
+        root.addView(playerView)
 
-        val close = Button(this).apply {
-            id = ID_CLOSE
-            text = "Back"
-        }
-
-        titleText = TextView(this).apply {
-            text = this@PlayerActivity.title
-            setTextColor(android.graphics.Color.WHITE)
-            textSize = 16f
-            setPadding(16, 0, 0, 0)
-            maxLines = 1
-        }
-
-        top.addView(close)
-        top.addView(
-            titleText,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        )
+        val titleView =
+            TextView(this).apply {
+                text = this@PlayerActivity.title
+                setTextColor(
+                    android.graphics.Color.WHITE
+                )
+                setBackgroundColor(0x55000000)
+                textSize = 16f
+                setPadding(24, 14, 24, 14)
+                maxLines = 1
+            }
 
         root.addView(
-            top,
+            titleView,
             FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -235,136 +164,190 @@ class PlayerActivity : ComponentActivity() {
             )
         )
 
-        val bottom = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(18, 12, 18, 18)
-            setBackgroundColor(0x77000000)
-        }
-
-        val timeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-        }
-
-        positionText = TextView(this).apply {
-            text = "00:00"
-            setTextColor(android.graphics.Color.WHITE)
-        }
-
-        durationText = TextView(this).apply {
-            text = "00:00"
-            setTextColor(android.graphics.Color.LTGRAY)
-        }
-
-        seekBar = SeekBar(this).apply {
-            max = 1000
-            progress = 0
-        }
-
-        timeRow.addView(positionText)
-        timeRow.addView(
-            seekBar,
-            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        )
-        timeRow.addView(durationText)
-
-        val controls = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-        }
-
-        val back10 = Button(this).apply {
-            id = ID_BACK_10
-            text = "-10s"
-        }
-
-        playButton = Button(this).apply {
-            text = "Pause"
-        }
-
-        val forward10 = Button(this).apply {
-            id = ID_FORWARD_10
-            text = "+10s"
-        }
-
-        controls.addView(back10)
-        controls.addView(playButton)
-        controls.addView(forward10)
-
-        bottom.addView(timeRow)
-        bottom.addView(controls)
-
-        root.addView(
-            bottom,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.BOTTOM
-            )
-        )
-
         setContentView(root)
     }
 
-    private fun startMedia(url: String) {
-        val vlc = libVLC ?: return
-        val mp = player ?: return
+    private fun startMedia(
+        url: String,
+        resumePositionMs: Long = 0L
+    ) {
+        currentMediaUrl = url
 
-        val media = Media(vlc, Uri.parse(url))
-        media.setHWDecoderEnabled(true, false)
-        media.addOption(":network-caching=1800")
+        val itemBuilder =
+            MediaItem.Builder()
+                .setUri(Uri.parse(url))
 
         subtitleUrl
             ?.takeIf {
                 it.startsWith("http://") ||
                     it.startsWith("https://")
             }
-            ?.let {
-                media.addOption(":sub-file=$it")
+            ?.let { subUrl ->
+                val mimeType =
+                    when {
+                        subUrl.contains(".vtt", ignoreCase = true) ->
+                            MimeTypes.TEXT_VTT
+
+                        subUrl.contains(".ssa", ignoreCase = true) ||
+                            subUrl.contains(".ass", ignoreCase = true) ->
+                            MimeTypes.TEXT_SSA
+
+                        else ->
+                            MimeTypes.APPLICATION_SUBRIP
+                    }
+
+                val subtitle =
+                    MediaItem.SubtitleConfiguration
+                        .Builder(Uri.parse(subUrl))
+                        .setMimeType(mimeType)
+                        .setLanguage("en")
+                        .setSelectionFlags(
+                            C.SELECTION_FLAG_DEFAULT
+                        )
+                        .build()
+
+                itemBuilder.setSubtitleConfigurations(
+                    listOf(subtitle)
+                )
             }
 
-        mp.media = media
-        media.release()
-        mp.play()
-    }
-
-    private fun updateProgressUi() {
         val p = player ?: return
-        val duration = p.length.takeIf { it > 0L } ?: 0L
-        val position = p.time.coerceAtLeast(0L)
 
-        if (!userSeeking && duration > 0L) {
-            seekBar.progress =
-                ((position.toDouble() / duration.toDouble()) * 1000.0)
-                    .toInt()
-                    .coerceIn(0, 1000)
+        compatibilityDialogShowing = false
+        p.setMediaItem(itemBuilder.build())
+        p.prepare()
+
+        if (resumePositionMs > 0L) {
+            p.seekTo(resumePositionMs)
         }
 
-        positionText.text = formatTime(position)
-        durationText.text = formatTime(duration)
+        p.playWhenReady = true
     }
 
-    private fun formatTime(ms: Long): String {
-        val total = (ms.coerceAtLeast(0L) / 1000L)
-        val hours = total / 3600L
-        val minutes = (total % 3600L) / 60L
-        val seconds = total % 60L
-
-        return if (hours > 0L) {
-            "%d:%02d:%02d".format(hours, minutes, seconds)
-        } else {
-            "%02d:%02d".format(minutes, seconds)
+    private fun showCompatibilityDialog(
+        mediaUrl: String,
+        reason: String
+    ) {
+        if (
+            isFinishing ||
+            isDestroyed ||
+            compatibilityDialogShowing
+        ) {
+            return
         }
+
+        compatibilityDialogShowing = true
+        player?.pause()
+
+        val packInstalled =
+            DeviceCompatibility.isPackInstalled(this)
+
+        val actionLabel =
+            if (packInstalled) {
+                "Open Support"
+            } else {
+                "Install Support"
+            }
+
+        val message =
+            buildString {
+                append(
+                    "This video uses a format your phone could not play normally."
+                )
+                append("\n\n")
+                append("Phone detected: ")
+                append(DeviceCompatibility.deviceLabel())
+                append("\n\n")
+                append("Recommended:\n")
+                append("TheNkiri Compatibility Pack\n")
+                append(DeviceCompatibility.deviceLabel())
+                append("\n\n")
+                append("Player error: ")
+                append(reason)
+            }
+
+        AlertDialog.Builder(this)
+            .setTitle(
+                "Extra playback support needed"
+            )
+            .setMessage(message)
+            .setPositiveButton(
+                actionLabel
+            ) { _, _ ->
+                compatibilityDialogShowing = false
+
+                val opened =
+                    if (packInstalled) {
+                        DeviceCompatibility.openInPack(
+                            this,
+                            mediaUrl,
+                            title
+                        )
+                    } else {
+                        DeviceCompatibility.openPackDownload(
+                            this
+                        )
+                    }
+
+                if (!opened) {
+                    Toast.makeText(
+                        this,
+                        "Could not open playback support.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNeutralButton(
+                "Open externally"
+            ) { _, _ ->
+                compatibilityDialogShowing = false
+
+                if (
+                    !DeviceCompatibility.openExternalPlayer(
+                        this,
+                        mediaUrl
+                    )
+                ) {
+                    Toast.makeText(
+                        this,
+                        "No compatible external player found.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNegativeButton(
+                "Cancel"
+            ) { _, _ ->
+                compatibilityDialogShowing = false
+            }
+            .setOnCancelListener {
+                compatibilityDialogShowing = false
+            }
+            .show()
     }
 
-    private fun saveProgress(completed: Boolean) {
+    private fun saveProgress(
+        completed: Boolean
+    ) {
         val p = player ?: return
         if (mediaId.isBlank()) return
 
-        val duration = p.length.takeIf { it > 0L } ?: 0L
+        val rawDuration = p.duration
+        val duration =
+            rawDuration
+                .takeIf {
+                    it != C.TIME_UNSET &&
+                        it > 0L
+                }
+                ?: 0L
+
         val position =
-            if (completed && duration > 0L) duration
-            else p.time.coerceAtLeast(0L)
+            if (completed && duration > 0L) {
+                duration
+            } else {
+                p.currentPosition
+                    .coerceAtLeast(0L)
+            }
 
         playbackStore.save(
             PlaybackRecord(
@@ -378,12 +361,15 @@ class PlayerActivity : ComponentActivity() {
                 episodeLabel = episodeLabel,
                 positionMs = position,
                 durationMs = duration,
-                updatedAt = System.currentTimeMillis(),
+                updatedAt =
+                    System.currentTimeMillis(),
                 completed =
                     completed ||
                         (
                             duration > 0L &&
-                                position >= (duration * 0.95).toLong()
+                                position >=
+                                (duration * 0.95)
+                                    .toLong()
                             )
             )
         )
@@ -392,29 +378,44 @@ class PlayerActivity : ComponentActivity() {
     private fun tryAutoNext() {
         val s = season ?: return
         val e = episode ?: return
+
         if (type != "series") return
 
         lifecycleScope.launch {
             runCatching {
-                val api = NkiriApi(LocalStore(this@PlayerActivity).apiBaseUrl())
+                val api =
+                    NkiriApi(
+                        LocalStore(
+                            this@PlayerActivity
+                        ).apiBaseUrl()
+                    )
+
                 val nextEpisode = e + 1
-                val response = api.sources(
-                    id = mediaId,
-                    season = s,
-                    episode = nextEpisode
-                )
+
+                val response =
+                    api.sources(
+                        id = mediaId,
+                        season = s,
+                        episode = nextEpisode
+                    )
+
                 val next =
                     response.selected
-                        ?: response.sources.firstOrNull()
+                        ?: response.sources
+                            .firstOrNull()
                         ?: return@runCatching
 
-                if (next.external || next.url.isNullOrBlank()) {
+                if (
+                    next.external ||
+                    next.url.isNullOrBlank()
+                ) {
                     return@runCatching
                 }
 
                 episode = nextEpisode
                 episodeLabel =
-                    "S${s.toString().padStart(2, '0')}E${nextEpisode.toString().padStart(2, '0')}"
+                    "S${s.toString().padStart(2, '0')}" +
+                        "E${nextEpisode.toString().padStart(2, '0')}"
 
                 startMedia(next.url!!)
             }
@@ -422,6 +423,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun hideSystemUi() {
+        @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility =
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
                 View.SYSTEM_UI_FLAG_FULLSCREEN or
@@ -440,7 +442,9 @@ class PlayerActivity : ComponentActivity() {
         ) {
             enterPictureInPictureMode(
                 PictureInPictureParams.Builder()
-                    .setAspectRatio(Rational(16, 9))
+                    .setAspectRatio(
+                        Rational(16, 9)
+                    )
                     .build()
             )
         }
@@ -455,21 +459,17 @@ class PlayerActivity : ComponentActivity() {
         if (!isInPictureInPictureMode) {
             player?.pause()
         }
+
         super.onStop()
     }
 
     override fun onDestroy() {
         saveProgress(completed = false)
-        handler.removeCallbacks(progressTicker)
         saveJob?.cancel()
 
-        player?.vlcVout?.detachViews()
-        player?.stop()
+        playerView.player = null
         player?.release()
         player = null
-
-        libVLC?.release()
-        libVLC = null
 
         super.onDestroy()
     }
@@ -483,12 +483,10 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_TYPE = "type"
         private const val EXTRA_SEASON = "season"
         private const val EXTRA_EPISODE = "episode"
-        private const val EXTRA_EPISODE_LABEL = "episodeLabel"
-        private const val EXTRA_SUBTITLE_URL = "subtitleUrl"
-
-        private const val ID_CLOSE = 3001
-        private const val ID_BACK_10 = 3002
-        private const val ID_FORWARD_10 = 3003
+        private const val EXTRA_EPISODE_LABEL =
+            "episodeLabel"
+        private const val EXTRA_SUBTITLE_URL =
+            "subtitleUrl"
 
         fun intent(
             context: Context,
@@ -503,17 +501,47 @@ class PlayerActivity : ComponentActivity() {
             episodeLabel: String?,
             subtitleUrl: String?
         ): Intent =
-            Intent(context, PlayerActivity::class.java)
+            Intent(
+                context,
+                PlayerActivity::class.java
+            )
                 .putExtra(EXTRA_URL, url)
-                .putExtra(EXTRA_MEDIA_ID, mediaId)
-                .putExtra(EXTRA_TITLE, title)
-                .putExtra(EXTRA_POSTER, poster)
-                .putExtra(EXTRA_PROVIDER, provider)
-                .putExtra(EXTRA_TYPE, type)
-                .putExtra(EXTRA_SEASON, season ?: 0)
-                .putExtra(EXTRA_EPISODE, episode ?: 0)
-                .putExtra(EXTRA_EPISODE_LABEL, episodeLabel)
-                .putExtra(EXTRA_SUBTITLE_URL, subtitleUrl)
+                .putExtra(
+                    EXTRA_MEDIA_ID,
+                    mediaId
+                )
+                .putExtra(
+                    EXTRA_TITLE,
+                    title
+                )
+                .putExtra(
+                    EXTRA_POSTER,
+                    poster
+                )
+                .putExtra(
+                    EXTRA_PROVIDER,
+                    provider
+                )
+                .putExtra(
+                    EXTRA_TYPE,
+                    type
+                )
+                .putExtra(
+                    EXTRA_SEASON,
+                    season ?: 0
+                )
+                .putExtra(
+                    EXTRA_EPISODE,
+                    episode ?: 0
+                )
+                .putExtra(
+                    EXTRA_EPISODE_LABEL,
+                    episodeLabel
+                )
+                .putExtra(
+                    EXTRA_SUBTITLE_URL,
+                    subtitleUrl
+                )
     }
 }
 
@@ -527,15 +555,22 @@ fun launchPlayer(
         val page =
             source.pageUrl
                 ?: source.url
-                ?: error("No playable URL was returned.")
+                ?: error(
+                    "No playable URL was returned."
+                )
 
-        openExternalUrl(context, page)
+        openExternalUrl(
+            context,
+            page
+        )
         return
     }
 
     val url =
         source.url
-            ?: error("No playable URL was returned.")
+            ?: error(
+                "No playable URL was returned."
+            )
 
     val subtitleUrl =
         title.subtitles

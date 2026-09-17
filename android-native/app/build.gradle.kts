@@ -10,6 +10,12 @@ val configuredApiBase =
         ?.takeIf { it.isNotEmpty() }
         ?: "https://nkiri-app-api.onrender.com"
 
+val configuredCompatPackBase =
+    (project.findProperty("NKIRI_COMPAT_PACK_BASE_URL") as String?)
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
+        ?: "https://github.com/cchughiefe-art/nkiri-bot/releases/latest/download"
+
 val releaseKeystorePath =
     System.getenv("ANDROID_KEYSTORE_PATH")
         ?.takeIf { it.isNotBlank() }
@@ -29,6 +35,12 @@ android {
             "String",
             "API_BASE_URL",
             "\"${configuredApiBase.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+        )
+
+        buildConfigField(
+            "String",
+            "COMPAT_PACK_BASE_URL",
+            "\"${configuredCompatPackBase.replace("\\", "\\\\").replace("\"", "\\\"")}\""
         )
     }
 
@@ -104,8 +116,9 @@ dependencies {
 
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
-    implementation("org.videolan.android:libvlc-all:3.7.6")
 
+    implementation("androidx.media3:media3-exoplayer:1.8.0")
+    implementation("androidx.media3:media3-ui:1.8.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

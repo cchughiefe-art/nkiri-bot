@@ -44,15 +44,15 @@ jobs:
 
           if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
             echo "sdkmanager not found under $SDK_ROOT"
-            find "$SDK_ROOT" -maxdepth 5 -type f -name sdkmanager -print || true
             exit 1
           fi
 
-          echo "Using sdkmanager: $SDKMANAGER"
-
           yes | "$SDKMANAGER" --licenses >/dev/null || true
 
-          "$SDKMANAGER" --install             "platforms;android-36"             "build-tools;36.0.0"             "platform-tools"
+          "$SDKMANAGER" --install \
+            "platforms;android-36" \
+            "build-tools;36.0.0" \
+            "platform-tools"
 
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
@@ -63,23 +63,38 @@ jobs:
         with:
           gradle-version: "8.11.1"
 
-      - name: Build debug APK
+      - name: Build debug APKs
         working-directory: android-native
         shell: bash
         run: |
           set -e
 
           if [ -n "${{ vars.NKIRI_API_BASE_URL }}" ]; then
-            gradle :app:assembleDebug               -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}"               --stacktrace
+            gradle \
+              :app:assembleDebug \
+              :compat-pack:assembleDebug \
+              -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}" \
+              --stacktrace
           else
-            gradle :app:assembleDebug --stacktrace
+            gradle \
+              :app:assembleDebug \
+              :compat-pack:assembleDebug \
+              --stacktrace
           fi
 
-      - name: Upload debug APK
+      - name: Upload debug core APK
         uses: actions/upload-artifact@v4
         with:
           name: TheNkiri-Android-v3-debug
           path: android-native/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload debug compatibility packs
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheNkiri-Compatibility-debug
+          path: android-native/compat-pack/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
 
@@ -89,7 +104,7 @@ jobs:
         run: |
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nkiri-release.jks"
 
-      - name: Build signed release APK and AAB
+      - name: Build signed release APKs and AAB
         if: env.ANDROID_KEYSTORE_BASE64 != ''
         working-directory: android-native
         shell: bash
@@ -99,9 +114,48 @@ jobs:
           set -e
 
           if [ -n "${{ vars.NKIRI_API_BASE_URL }}" ]; then
-            gradle :app:assembleRelease :app:bundleRelease               -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}"               --stacktrace
+            gradle \
+              :app:assembleRelease \
+              :app:bundleRelease \
+              :compat-pack:assembleRelease \
+              -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}" \
+              --stacktrace
           else
-            gradle :app:assembleRelease :app:bundleRelease --stacktrace
+            gradle \
+              :app:assembleRelease \
+              :app:bundleRelease \
+              :compat-pack:assembleRelease \
+              --stacktrace
+          fi
+
+      - name: Prepare compatibility pack files
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        shell: bash
+        run: |
+          set -e
+          mkdir -p dist
+
+          ARM64="$(find android-native/compat-pack/build/outputs/apk/release -type f -name '*arm64-v8a*release*.apk' | head -n 1)"
+          ARM32="$(find android-native/compat-pack/build/outputs/apk/release -type f -name '*armeabi-v7a*release*.apk' | head -n 1)"
+
+          test -n "$ARM64"
+          test -n "$ARM32"
+
+          cp "$ARM64" dist/TheNkiri-Compatibility-arm64-v8a.apk
+          cp "$ARM32" dist/TheNkiri-Compatibility-armeabi-v7a.apk
+
+      - name: Show APK sizes
+        shell: bash
+        run: |
+          echo "Core APK:"
+          ls -lh android-native/app/build/outputs/apk/debug/app-debug.apk
+
+          echo "Compatibility debug APKs:"
+          ls -lh android-native/compat-pack/build/outputs/apk/debug/*.apk
+
+          if [ -d dist ]; then
+            echo "Release compatibility APKs:"
+            ls -lh dist/*.apk
           fi
 
       - name: Upload signed release APK
@@ -119,5 +173,14 @@ jobs:
         with:
           name: TheNkiri-Android-v3-release-aab
           path: android-native/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload signed compatibility packs
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheNkiri-Compatibility-release
+          path: dist/*.apk
           if-no-files-found: error
           retention-days: 30
