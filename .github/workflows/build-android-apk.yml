@@ -1,0 +1,123 @@
+name: Build TheNkiri Android
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v2
+      - app-v1
+      - main
+    paths:
+      - "android-native/**"
+      - ".github/workflows/build-android-apk.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configure Android SDK
+        shell: bash
+        run: |
+          set -e
+
+          SDK_ROOT="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "$SDK_ROOT/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)"
+          fi
+
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "sdkmanager not found under $SDK_ROOT"
+            find "$SDK_ROOT" -maxdepth 5 -type f -name sdkmanager -print || true
+            exit 1
+          fi
+
+          echo "Using sdkmanager: $SDKMANAGER"
+
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+
+          "$SDKMANAGER" --install             "platforms;android-35"             "build-tools;35.0.0"             "platform-tools"
+
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "$SDK_ROOT/platform-tools" >> "$GITHUB_PATH"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+
+      - name: Build debug APK
+        working-directory: android-native
+        shell: bash
+        run: |
+          set -e
+
+          if [ -n "${{ vars.NKIRI_API_BASE_URL }}" ]; then
+            gradle :app:assembleDebug               -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}"               --stacktrace
+          else
+            gradle :app:assembleDebug --stacktrace
+          fi
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheNkiri-Android-v1-debug
+          path: android-native/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Decode release keystore
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        shell: bash
+        run: |
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/nkiri-release.jks"
+
+      - name: Build signed release APK and AAB
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        working-directory: android-native
+        shell: bash
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/nkiri-release.jks
+        run: |
+          set -e
+
+          if [ -n "${{ vars.NKIRI_API_BASE_URL }}" ]; then
+            gradle :app:assembleRelease :app:bundleRelease               -PNKIRI_API_BASE_URL="${{ vars.NKIRI_API_BASE_URL }}"               --stacktrace
+          else
+            gradle :app:assembleRelease :app:bundleRelease --stacktrace
+          fi
+
+      - name: Upload signed release APK
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheNkiri-Android-v1-release-apk
+          path: android-native/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload signed Play Store bundle
+        if: env.ANDROID_KEYSTORE_BASE64 != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheNkiri-Android-v1-release-aab
+          path: android-native/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error
+          retention-days: 30
