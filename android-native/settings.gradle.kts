@@ -17,3 +17,4 @@ dependencyResolutionManagement {
 rootProject.name = "NkiriMobile"
 include(":app")
 include(":compat-pack")
+include(":compatfeature")

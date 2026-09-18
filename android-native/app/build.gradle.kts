@@ -10,17 +10,19 @@ val configuredApiBase =
         ?.takeIf { it.isNotEmpty() }
         ?: "https://nkiri-app-api.onrender.com"
 
-val configuredCompatPackBase =
-    (project.findProperty("NKIRI_COMPAT_PACK_BASE_URL") as String?)
+val configuredCompatSplitRoot =
+    (project.findProperty("NKIRI_COMPAT_SPLIT_ROOT_URL") as String?)
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
-        ?: "https://github.com/cchughiefe-art/nkiri-bot/releases/download/compat-v1"
+        ?: "https://github.com/cchughiefe-art/nkiri-bot/releases/download"
+
 
 val releaseKeystorePath =
     System.getenv("ANDROID_KEYSTORE_PATH")
         ?.takeIf { it.isNotBlank() }
 
 android {
+    dynamicFeatures += setOf(":compatfeature")
     namespace = "com.nkiridown.app"
     compileSdk = 36
 
@@ -39,9 +41,11 @@ android {
 
         buildConfigField(
             "String",
-            "COMPAT_PACK_BASE_URL",
-            "\"${configuredCompatPackBase.replace("\\", "\\\\").replace("\"", "\\\"")}\""
+            "COMPAT_SPLIT_ROOT_URL",
+            "\"${configuredCompatSplitRoot.replace("\\", "\\\\").replace("\"", "\\\"")}\""
         )
+
+
     }
 
     compileOptions {

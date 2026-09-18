@@ -13,6 +13,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.view.WindowManager
 import android.widget.FrameLayout
+import android.widget.ProgressBar
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -49,6 +51,8 @@ class PlayerActivity : ComponentActivity() {
     private var subtitleUrl: String? = null
     private var currentMediaUrl: String = ""
     private var compatibilityDialogShowing = false
+    private var pendingCompatibilityRequest: CompatibilityPlaybackRequest? = null
+    private var compatibilityInstallDialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -88,6 +92,18 @@ class PlayerActivity : ComponentActivity() {
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    val request = compatibilityRequest(currentMediaUrl)
+
+                    if (
+                        CompatibilityModuleManager.isInstalled(this@PlayerActivity) &&
+                        CompatibilityModuleManager.launch(this@PlayerActivity, request)
+                    ) {
+                        finish()
+                        @Suppress("DEPRECATION")
+                        overridePendingTransition(0, 0)
+                        return
+                    }
+
                     showCompatibilityDialog(
                         mediaUrl = currentMediaUrl,
                         reason = error.errorCodeName
@@ -239,67 +255,30 @@ class PlayerActivity : ComponentActivity() {
         compatibilityDialogShowing = true
         player?.pause()
 
-        val packInstalled =
-            DeviceCompatibility.isPackInstalled(this)
-
-        val actionLabel =
-            if (packInstalled) {
-                "Open Support"
-            } else {
-                "Install Support"
-            }
-
-        val message =
-            buildString {
-                append(
-                    "This video uses a format your phone could not play normally."
-                )
-                append("\n\n")
-                append("Phone detected: ")
-                append(DeviceCompatibility.deviceLabel())
-                append("\n\n")
-                append("Recommended:\n")
-                append("TheNkiri Compatibility Pack\n")
-                append(DeviceCompatibility.deviceLabel())
-                append("\n\n")
-                append("Player error: ")
-                append(reason)
-            }
+        val request = compatibilityRequest(mediaUrl)
 
         AlertDialog.Builder(this)
-            .setTitle(
-                "Extra playback support needed"
+            .setTitle("Extra playback support needed")
+            .setMessage(
+                "This video needs extra playback support.\n\n" +
+                    "Phone detected: ${CompatibilityModuleManager.deviceLabel()}\n\n" +
+                    "The support engine installs inside TheNkiri. " +
+                    "It does not create a second launcher app.\n\n" +
+                    "Player error: $reason"
             )
-            .setMessage(message)
-            .setPositiveButton(
-                actionLabel
-            ) { _, _ ->
+            .setPositiveButton("Install Support") { _, _ ->
                 compatibilityDialogShowing = false
+                pendingCompatibilityRequest = request
 
-                val opened =
-                    if (packInstalled) {
-                        DeviceCompatibility.openInPack(
-                            this,
-                            mediaUrl,
-                            title
-                        )
-                    } else {
-                        DeviceCompatibility.openPackDownload(
-                            this
-                        )
-                    }
-
-                if (!opened) {
-                    Toast.makeText(
-                        this,
-                        "Could not open playback support.",
-                        Toast.LENGTH_LONG
-                    ).show()
+                if (
+                    CompatibilityModuleManager.canInstallSplits(this)
+                ) {
+                    startCompatibilityInstall(request)
+                } else {
+                    CompatibilityModuleManager.requestInstallPermission(this)
                 }
             }
-            .setNeutralButton(
-                "Open externally"
-            ) { _, _ ->
+            .setNeutralButton("Open externally") { _, _ ->
                 compatibilityDialogShowing = false
 
                 if (
@@ -315,15 +294,107 @@ class PlayerActivity : ComponentActivity() {
                     ).show()
                 }
             }
-            .setNegativeButton(
-                "Cancel"
-            ) { _, _ ->
+            .setNegativeButton("Cancel") { _, _ ->
                 compatibilityDialogShowing = false
             }
             .setOnCancelListener {
                 compatibilityDialogShowing = false
             }
             .show()
+    }
+
+    private fun compatibilityRequest(
+        mediaUrl: String
+    ): CompatibilityPlaybackRequest =
+        CompatibilityPlaybackRequest(
+            url = mediaUrl,
+            mediaId = mediaId,
+            title = title,
+            poster = poster,
+            provider = provider,
+            type = type,
+            season = season,
+            episode = episode,
+            episodeLabel = episodeLabel,
+            subtitleUrl = subtitleUrl
+        )
+
+    private fun startCompatibilityInstall(
+        request: CompatibilityPlaybackRequest
+    ) {
+        if (
+            compatibilityInstallDialog?.isShowing == true
+        ) {
+            return
+        }
+
+        val wrapper =
+            LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(48, 28, 48, 12)
+            }
+
+        val progress =
+            ProgressBar(
+                this,
+                null,
+                android.R.attr.progressBarStyleHorizontal
+            ).apply {
+                max = 100
+                progress = 0
+            }
+
+        val label =
+            TextView(this).apply {
+                text = "Preparing playback support…"
+                setPadding(0, 18, 0, 0)
+            }
+
+        wrapper.addView(
+            progress,
+            LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        )
+        wrapper.addView(label)
+
+        val dialog =
+            AlertDialog.Builder(this)
+                .setTitle("TheNkiri Playback Support")
+                .setView(wrapper)
+                .setCancelable(false)
+                .create()
+
+        compatibilityInstallDialog = dialog
+        dialog.show()
+
+        lifecycleScope.launch {
+            runCatching {
+                CompatibilityModuleManager.downloadAndInstall(
+                    this@PlayerActivity,
+                    request
+                ) { percent ->
+                    progress.progress = percent
+                    label.text =
+                        if (percent < 90) {
+                            "Downloading support… $percent%"
+                        } else {
+                            "Preparing installation…"
+                        }
+                }
+            }.onFailure { error ->
+                compatibilityInstallDialog?.dismiss()
+                compatibilityInstallDialog = null
+
+                Toast.makeText(
+                    this@PlayerActivity,
+                    error.message
+                        ?: "Could not install playback support.",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
     }
 
     private fun saveProgress(
@@ -447,6 +518,21 @@ class PlayerActivity : ComponentActivity() {
                     )
                     .build()
             )
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+
+        val pending =
+            pendingCompatibilityRequest
+                ?: return
+
+        if (
+            CompatibilityModuleManager.canInstallSplits(this)
+        ) {
+            pendingCompatibilityRequest = null
+            startCompatibilityInstall(pending)
         }
     }
 
