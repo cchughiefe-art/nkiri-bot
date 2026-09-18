@@ -33,6 +33,7 @@ kotlin {
 }
 
 dependencies {
+    implementation("androidx.activity:activity-ktx:1.10.1")
     implementation(project(":app"))
     implementation("org.videolan.android:libvlc-all:3.7.6")
 }

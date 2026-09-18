@@ -25,6 +25,7 @@ import com.nkiridown.app.PlaybackStore
 import org.videolan.libvlc.LibVLC
 import org.videolan.libvlc.Media
 import org.videolan.libvlc.MediaPlayer
+import org.videolan.libvlc.interfaces.IMedia
 
 class CompatPlayerActivity : ComponentActivity() {
     private var libVlc: LibVLC? = null
@@ -440,7 +441,7 @@ class CompatPlayerActivity : ComponentActivity() {
                     {
                         runCatching {
                             player?.addSlave(
-                                Media.Slave.Type.Subtitle,
+                                IMedia.Slave.Type.Subtitle,
                                 Uri.parse(subtitle),
                                 true
                             )
