@@ -40,7 +40,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             NkiriTheme {
-                NkiriV2App(
+                com.nkiridown.app.ui.app.TheNkiriRoot(
                     viewModel = viewModel,
                     onDownload = { source ->
                         viewModel.resolveSource(source) { ready ->

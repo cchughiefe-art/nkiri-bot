@@ -316,6 +316,35 @@ class MainViewModel(
             )
     }
 
+    fun clearRecentSearches() {
+        store.clearRecentSearches()
+        _state.value =
+            _state.value.copy(
+                recentSearches = emptyList()
+            )
+    }
+
+    fun toggleFavorite(item: SearchItem) {
+        val favorite =
+            store.toggleFavorite(
+                FavoriteItem(
+                    id = item.id,
+                    title = item.title,
+                    type = item.type,
+                    poster = item.poster,
+                    provider = item.provider
+                )
+            )
+
+        _state.value =
+            _state.value.copy(
+                favorites = store.favorites(),
+                isCurrentFavorite =
+                    if (_state.value.title?.id == item.id) favorite
+                    else _state.value.isCurrentFavorite
+            )
+    }
+
     fun search(
         forcedQuery: String? = null
     ) {
