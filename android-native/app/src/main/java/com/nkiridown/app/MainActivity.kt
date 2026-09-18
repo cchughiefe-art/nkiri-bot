@@ -177,7 +177,9 @@ class MainActivity : ComponentActivity() {
                                 context = this,
                                 source = ready,
                                 title = title,
-                                episode = episode
+                                episode = episode,
+                                resumePositionMs =
+                                    record.positionMs
                             )
                         }
                     },

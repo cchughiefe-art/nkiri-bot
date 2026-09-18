@@ -73,6 +73,12 @@ class PlayerActivity : ComponentActivity() {
         episodeLabel = intent.getStringExtra(EXTRA_EPISODE_LABEL)
         subtitleUrl = intent.getStringExtra(EXTRA_SUBTITLE_URL)
 
+        val requestedResumePosition =
+            intent.getLongExtra(
+                EXTRA_RESUME_POSITION_MS,
+                -1L
+            )
+
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemUi()
@@ -121,16 +127,29 @@ class PlayerActivity : ComponentActivity() {
         )
 
         val resumePosition =
-            playbackStore
-                .find(mediaId, season, episode)
-                ?.takeIf {
-                    !it.completed &&
-                        it.positionMs > 0L
-                }
-                ?.positionMs
-                ?: 0L
+            if (
+                requestedResumePosition >= 0L
+            ) {
+                requestedResumePosition
+            } else {
+                playbackStore
+                    .find(
+                        mediaId,
+                        season,
+                        episode
+                    )
+                    ?.takeIf {
+                        !it.completed &&
+                            it.positionMs > 0L
+                    }
+                    ?.positionMs
+                    ?: 0L
+            }
 
-        startMedia(url, resumePosition)
+        startMedia(
+            url,
+            resumePosition
+        )
 
         saveJob =
             lifecycleScope.launch {
@@ -166,27 +185,6 @@ class PlayerActivity : ComponentActivity() {
             }
 
         root.addView(playerView)
-
-        val titleView =
-            TextView(this).apply {
-                text = this@PlayerActivity.title
-                setTextColor(
-                    android.graphics.Color.WHITE
-                )
-                setBackgroundColor(0x55000000)
-                textSize = 16f
-                setPadding(24, 14, 24, 14)
-                maxLines = 1
-            }
-
-        root.addView(
-            titleView,
-            FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                Gravity.TOP
-            )
-        )
 
         setContentView(root)
     }
@@ -597,6 +595,9 @@ class PlayerActivity : ComponentActivity() {
         private const val EXTRA_SUBTITLE_URL =
             "subtitleUrl"
 
+        private const val EXTRA_RESUME_POSITION_MS =
+            "resumePositionMs"
+
         fun intent(
             context: Context,
             url: String,
@@ -608,7 +609,8 @@ class PlayerActivity : ComponentActivity() {
             season: Int?,
             episode: Int?,
             episodeLabel: String?,
-            subtitleUrl: String?
+            subtitleUrl: String?,
+            resumePositionMs: Long = -1L
         ): Intent =
             Intent(
                 context,
@@ -651,6 +653,10 @@ class PlayerActivity : ComponentActivity() {
                     EXTRA_SUBTITLE_URL,
                     subtitleUrl
                 )
+                .putExtra(
+                    EXTRA_RESUME_POSITION_MS,
+                    resumePositionMs
+                )
     }
 }
 
@@ -658,7 +664,8 @@ fun launchPlayer(
     context: Context,
     source: SourceItem,
     title: TitleInfo,
-    episode: EpisodeItem? = null
+    episode: EpisodeItem? = null,
+    resumePositionMs: Long = -1L
 ) {
     if (source.external) {
         val page =
@@ -700,7 +707,8 @@ fun launchPlayer(
             season = episode?.season,
             episode = episode?.episode,
             episodeLabel = episode?.label,
-            subtitleUrl = subtitleUrl
+            subtitleUrl = subtitleUrl,
+            resumePositionMs = resumePositionMs
         )
     )
 }
