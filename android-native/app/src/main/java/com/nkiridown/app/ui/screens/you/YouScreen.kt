@@ -28,8 +28,14 @@ fun YouScreen(
     state: UiState,
     section: YouSection,
     dataSaver: Boolean,
+    wifiOnlyDownloads: Boolean,
+    autoPlayNext: Boolean,
+    preferredQuality: Int,
     onSection: (YouSection) -> Unit,
     onDataSaver: (Boolean) -> Unit,
+    onWifiOnlyDownloads: (Boolean) -> Unit,
+    onAutoPlayNext: (Boolean) -> Unit,
+    onPreferredQuality: (Int) -> Unit,
     onOpenFavorite: (FavoriteItem) -> Unit,
     onResume: (PlaybackRecord) -> Unit,
     onClearHistory: () -> Unit,
@@ -47,7 +53,20 @@ fun YouScreen(
             History(state.history, onSection, onResume, onClearHistory)
 
         YouSection.SETTINGS ->
-            Settings(state, dataSaver, onSection, onDataSaver, onOpenUrl, onShare)
+            Settings(
+                state = state,
+                dataSaver = dataSaver,
+                wifiOnlyDownloads = wifiOnlyDownloads,
+                autoPlayNext = autoPlayNext,
+                preferredQuality = preferredQuality,
+                onSection = onSection,
+                onDataSaver = onDataSaver,
+                onWifiOnlyDownloads = onWifiOnlyDownloads,
+                onAutoPlayNext = onAutoPlayNext,
+                onPreferredQuality = onPreferredQuality,
+                onOpenUrl = onOpenUrl,
+                onShare = onShare
+            )
     }
 }
 
@@ -197,8 +216,14 @@ private fun History(
 private fun Settings(
     state: UiState,
     dataSaver: Boolean,
+    wifiOnlyDownloads: Boolean,
+    autoPlayNext: Boolean,
+    preferredQuality: Int,
     onSection: (YouSection) -> Unit,
     onDataSaver: (Boolean) -> Unit,
+    onWifiOnlyDownloads: (Boolean) -> Unit,
+    onAutoPlayNext: (Boolean) -> Unit,
+    onPreferredQuality: (Int) -> Unit,
     onOpenUrl: (String) -> Unit,
     onShare: () -> Unit
 ) {
@@ -233,6 +258,83 @@ private fun Settings(
                     }
                     Switch(checked = dataSaver, onCheckedChange = onDataSaver)
                 }
+            }
+        }
+
+        item {
+            Surface(
+                color = NkiriCard,
+                shape = NkiriShapes.medium,
+                border = BorderStroke(1.dp, NkiriOutline)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Wi-Fi only downloads", color = NkiriText, fontWeight = FontWeight.Bold)
+                        Text("Keep queued downloads waiting until Wi-Fi or an unmetered network is available", color = NkiriMuted)
+                    }
+                    Switch(
+                        checked = wifiOnlyDownloads,
+                        onCheckedChange = onWifiOnlyDownloads
+                    )
+                }
+            }
+        }
+
+        item {
+            Surface(
+                color = NkiriCard,
+                shape = NkiriShapes.medium,
+                border = BorderStroke(1.dp, NkiriOutline)
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Auto-play next episode", color = NkiriText, fontWeight = FontWeight.Bold)
+                        Text("Automatically continue when a series episode ends", color = NkiriMuted)
+                    }
+                    Switch(
+                        checked = autoPlayNext,
+                        onCheckedChange = onAutoPlayNext
+                    )
+                }
+            }
+        }
+
+        item {
+            Surface(
+                color = NkiriCard,
+                shape = NkiriShapes.medium,
+                border = BorderStroke(1.dp, NkiriOutline)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("Preferred quality", color = NkiriText, fontWeight = FontWeight.Bold)
+                    Text("Used automatically for multi-episode downloads when available", color = NkiriMuted)
+                    Spacer(Modifier.height(10.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf(360, 480, 720, 1080).forEach { quality ->
+                            FilterChip(
+                                selected = preferredQuality == quality,
+                                onClick = { onPreferredQuality(quality) },
+                                label = { Text("${quality}p") }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        item {
+            HubAction(
+                "Report a problem",
+                "Send beta feedback from the tester website",
+                Icons.Default.BugReport
+            ) {
+                onOpenUrl("https://thenkiri-site.vercel.app/report")
             }
         }
 

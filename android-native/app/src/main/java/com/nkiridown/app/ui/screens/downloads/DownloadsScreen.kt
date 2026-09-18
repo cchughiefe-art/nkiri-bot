@@ -31,6 +31,23 @@ fun DownloadsScreen(
     val tasks by ManagedDownloads.state(context).collectAsStateWithLifecycle()
     var confirmClear by remember { mutableStateOf(false) }
 
+    val active =
+        tasks.filter {
+            it.status == ManagedDownloadStatus.RUNNING ||
+            it.status == ManagedDownloadStatus.QUEUED
+        }
+
+    val downloaded =
+        tasks.filter {
+            it.status == ManagedDownloadStatus.COMPLETED
+        }
+
+    val attention =
+        tasks.filter {
+            it.status == ManagedDownloadStatus.PAUSED ||
+            it.status == ManagedDownloadStatus.FAILED
+        }
+
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
@@ -50,8 +67,8 @@ fun DownloadsScreen(
                     Text("Cancel", color = NkiriMuted)
                 }
             },
-            title = { Text("Clear completed downloads?") },
-            text = { Text("This removes completed items from the download list.") }
+            title = { Text("Clear downloaded items?") },
+            text = { Text("This removes completed items from the list. Downloaded files stay on your device until deleted from storage.") }
         )
     }
 
@@ -63,22 +80,62 @@ fun DownloadsScreen(
         item {
             SectionHeader(
                 title = "Downloads",
-                subtitle = "Offline files and active transfers",
-                action = if (tasks.any { it.status == ManagedDownloadStatus.COMPLETED }) "Clear done" else null,
-                onAction = if (tasks.any { it.status == ManagedDownloadStatus.COMPLETED }) {
-                    { confirmClear = true }
-                } else null
+                subtitle = "Active transfers and saved offline videos"
             )
         }
 
         if (tasks.isEmpty()) {
             item {
-                EmptyState("No downloads yet", "Choose a quality from any movie or episode to save it offline.")
+                EmptyState(
+                    "No downloads yet",
+                    "Choose a quality from a movie or select episodes from a season."
+                )
             }
         }
 
-        items(tasks, key = { it.id }) { task ->
-            DownloadCard(task)
+        if (active.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Downloading",
+                    subtitle = "${active.size} active or queued",
+                    action = "Pause all",
+                    onAction = { ManagedDownloads.pauseAll(context) }
+                )
+            }
+
+            items(active, key = { it.id }) { task ->
+                DownloadCard(task)
+            }
+        }
+
+        if (attention.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Paused / needs attention",
+                    subtitle = "Resume failed or paused downloads",
+                    action = "Resume all",
+                    onAction = { ManagedDownloads.resumeAll(context) }
+                )
+            }
+
+            items(attention, key = { it.id }) { task ->
+                DownloadCard(task)
+            }
+        }
+
+        if (downloaded.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    title = "Downloaded",
+                    subtitle = "${downloaded.size} ready to watch offline",
+                    action = "Clear list",
+                    onAction = { confirmClear = true }
+                )
+            }
+
+            items(downloaded, key = { it.id }) { task ->
+                DownloadCard(task)
+            }
         }
     }
 }

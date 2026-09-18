@@ -87,7 +87,15 @@ class PlayerActivity : ComponentActivity() {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_ENDED) {
                         saveProgress(completed = true)
-                        tryAutoNext()
+
+                        if (
+                            AppPreferences(this@PlayerActivity)
+                                .autoPlayNext()
+                        ) {
+                            tryAutoNext()
+                        } else {
+                            showNextEpisodePrompt()
+                        }
                     }
                 }
 
@@ -444,6 +452,21 @@ class PlayerActivity : ComponentActivity() {
                             )
             )
         )
+    }
+
+    private fun showNextEpisodePrompt() {
+        val s = season ?: return
+        val e = episode ?: return
+        if (type != "series") return
+
+        AlertDialog.Builder(this)
+            .setTitle("Episode finished")
+            .setMessage("Play the next episode now?")
+            .setPositiveButton("Play next") { _, _ ->
+                tryAutoNext()
+            }
+            .setNegativeButton("Not now", null)
+            .show()
     }
 
     private fun tryAutoNext() {

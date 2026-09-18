@@ -3,6 +3,8 @@ package com.nkiridown.app
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import android.os.Environment
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
@@ -57,6 +59,8 @@ object ManagedDownloads {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val jobs = ConcurrentHashMap<String, Job>()
+    private val calls = ConcurrentHashMap<String, okhttp3.Call>()
+    private val pausedIds = ConcurrentHashMap.newKeySet<String>()
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(20, TimeUnit.SECONDS)
@@ -141,29 +145,66 @@ object ManagedDownloads {
             createdAt = System.currentTimeMillis()
         )
 
-        update(context.applicationContext) { listOf(task) + it }
+        update(context.applicationContext) { it + task }
         ensureForegroundService(context)
-        start(context.applicationContext, id)
+        startNext(context.applicationContext)
         return id
     }
 
     fun pause(context: Context, id: String) {
         initialize(context)
+
+        pausedIds.add(id)
+        calls.remove(id)?.cancel()
         jobs.remove(id)?.cancel()
+
         update(context.applicationContext) { list ->
             list.map {
-                if (it.id == id &&
+                if (
+                    it.id == id &&
                     it.status != ManagedDownloadStatus.COMPLETED
-                ) it.copy(status = ManagedDownloadStatus.PAUSED, error = null)
-                else it
+                ) {
+                    it.copy(
+                        status = ManagedDownloadStatus.PAUSED,
+                        speedBytesPerSecond = 0L,
+                        etaSeconds = null,
+                        error = null
+                    )
+                } else {
+                    it
+                }
             }
         }
+
+        startNext(
+            context.applicationContext
+        )
     }
 
     fun resume(context: Context, id: String) {
         initialize(context)
+        pausedIds.remove(id)
+
+        update(context.applicationContext) { list ->
+            list.map {
+                if (
+                    it.id == id &&
+                    it.status != ManagedDownloadStatus.COMPLETED
+                ) {
+                    it.copy(
+                        status = ManagedDownloadStatus.QUEUED,
+                        error = null
+                    )
+                } else {
+                    it
+                }
+            }
+        }
+
         ensureForegroundService(context)
-        start(context.applicationContext, id)
+        startNext(
+            context.applicationContext
+        )
     }
 
     fun resumeWaiting(context: Context) {
@@ -199,24 +240,41 @@ object ManagedDownloads {
                 it.id
             )
         }
+
+        startNext(
+            context.applicationContext
+        )
     }
 
     fun retry(context: Context, id: String) {
         initialize(context)
+        pausedIds.remove(id)
+
         update(context.applicationContext) { list ->
             list.map {
-                if (it.id == id) it.copy(
-                    status = ManagedDownloadStatus.PAUSED,
-                    error = null
-                ) else it
+                if (
+                    it.id == id
+                ) {
+                    it.copy(
+                        status = ManagedDownloadStatus.QUEUED,
+                        error = null
+                    )
+                } else {
+                    it
+                }
             }
         }
+
         ensureForegroundService(context)
-        start(context.applicationContext, id)
+        startNext(
+            context.applicationContext
+        )
     }
 
     fun cancel(context: Context, id: String) {
         initialize(context)
+        pausedIds.remove(id)
+        calls.remove(id)?.cancel()
         jobs.remove(id)?.cancel()
         val task = _tasks.value.firstOrNull { it.id == id }
         task?.let {
@@ -226,6 +284,56 @@ object ManagedDownloads {
         update(context.applicationContext) { list ->
             list.filterNot { it.id == id }
         }
+
+        startNext(
+            context.applicationContext
+        )
+    }
+
+    fun pauseAll(context: Context) {
+        initialize(context)
+        _tasks.value
+            .filter {
+                it.status == ManagedDownloadStatus.RUNNING ||
+                it.status == ManagedDownloadStatus.QUEUED
+            }
+            .forEach {
+                pause(context, it.id)
+            }
+    }
+
+    fun resumeAll(context: Context) {
+        initialize(context)
+        _tasks.value
+            .filter {
+                it.status == ManagedDownloadStatus.PAUSED ||
+                it.status == ManagedDownloadStatus.FAILED
+            }
+            .forEach {
+                pausedIds.remove(it.id)
+            }
+
+        update(context.applicationContext) { list ->
+            list.map {
+                if (
+                    it.status == ManagedDownloadStatus.PAUSED ||
+                    it.status == ManagedDownloadStatus.FAILED
+                ) {
+                    it.copy(
+                        status = ManagedDownloadStatus.QUEUED,
+                        error = null
+                    )
+                } else it
+            }
+        }
+
+        ensureForegroundService(context)
+        startNext(context.applicationContext)
+    }
+
+    fun kick(context: Context) {
+        initialize(context)
+        startNext(context.applicationContext)
     }
 
     fun clearCompleted(context: Context) {
@@ -254,39 +362,127 @@ object ManagedDownloads {
         )
     }
 
-    private fun start(context: Context, id: String) {
-        if (jobs[id]?.isActive == true) return
-
-        val existing = _tasks.value.firstOrNull { it.id == id } ?: return
-        if (existing.status == ManagedDownloadStatus.COMPLETED) return
-
-        update(context) { list ->
-            list.map {
-                if (it.id == id) it.copy(
-                    status = ManagedDownloadStatus.QUEUED,
-                    error = null
-                ) else it
-            }
+    @Synchronized
+    private fun startNext(
+        context: Context
+    ) {
+        if (
+            AppPreferences(context).wifiOnlyDownloads() &&
+            !isWifiOrUnmetered(context)
+        ) {
+            return
         }
 
-        jobs[id] = scope.launch {
-            try {
-                download(context, id)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                update(context) { list ->
-                    list.map {
-                        if (it.id == id) it.copy(
-                            status = ManagedDownloadStatus.FAILED,
-                            error = error.message ?: "Download failed"
-                        ) else it
-                    }
+        if (
+            jobs.values.any {
+                it.isActive
+            }
+        ) {
+            return
+        }
+
+        val next =
+            _tasks.value
+                .firstOrNull {
+                    it.status ==
+                        ManagedDownloadStatus.QUEUED &&
+                    !pausedIds.contains(
+                        it.id
+                    )
                 }
-            } finally {
-                jobs.remove(id)
+                ?: return
+
+        start(
+            context,
+            next.id
+        )
+    }
+
+    private fun start(
+        context: Context,
+        id: String
+    ) {
+        if (
+            jobs[id]?.isActive == true ||
+            pausedIds.contains(id) ||
+            jobs.values.any {
+                it.isActive
             }
+        ) {
+            return
         }
+
+        val existing =
+            _tasks.value
+                .firstOrNull {
+                    it.id == id
+                }
+                ?: return
+
+        if (
+            existing.status ==
+                ManagedDownloadStatus.COMPLETED ||
+            existing.status ==
+                ManagedDownloadStatus.PAUSED
+        ) {
+            return
+        }
+
+        jobs[id] =
+            scope.launch {
+                try {
+                    download(
+                        context,
+                        id
+                    )
+                } catch (
+                    cancelled:
+                        CancellationException
+                ) {
+                    if (
+                        !pausedIds.contains(
+                            id
+                        )
+                    ) {
+                        throw cancelled
+                    }
+                } catch (
+                    error: Exception
+                ) {
+                    if (
+                        !pausedIds.contains(
+                            id
+                        )
+                    ) {
+                        update(context) { list ->
+                            list.map {
+                                if (
+                                    it.id == id
+                                ) {
+                                    it.copy(
+                                        status =
+                                            ManagedDownloadStatus.FAILED,
+                                        speedBytesPerSecond = 0L,
+                                        etaSeconds = null,
+                                        error =
+                                            error.message
+                                                ?: "Download failed"
+                                    )
+                                } else {
+                                    it
+                                }
+                            }
+                        }
+                    }
+                } finally {
+                    calls.remove(id)
+                    jobs.remove(id)
+
+                    startNext(
+                        context
+                    )
+                }
+            }
     }
 
     private suspend fun download(context: Context, id: String) {
@@ -306,9 +502,28 @@ object ManagedDownloads {
             requestBuilder = requestBuilder.header("Range", "bytes=$existing-")
         }
 
-        val response = client.newCall(requestBuilder.build()).execute()
+        if (
+            pausedIds.contains(id)
+        ) {
+            return
+        }
+
+        val call =
+            client.newCall(
+                requestBuilder.build()
+            )
+
+        calls[id] = call
+
+        val response =
+            call.execute()
 
         response.use { res ->
+            if (
+                pausedIds.contains(id)
+            ) {
+                return
+            }
             if (!res.isSuccessful) {
                 throw IllegalStateException("Server returned HTTP ${res.code}")
             }
@@ -326,14 +541,27 @@ object ManagedDownloads {
                 res.header("Content-Range")
             ) ?: if (contentLength > 0L) existing + contentLength else task.totalBytes
 
+            if (
+                pausedIds.contains(id)
+            ) {
+                return
+            }
+
             update(context) { list ->
                 list.map {
-                    if (it.id == id) it.copy(
-                        status = ManagedDownloadStatus.RUNNING,
-                        downloadedBytes = existing,
-                        totalBytes = total.coerceAtLeast(it.totalBytes),
-                        error = null
-                    ) else it
+                    if (
+                        it.id == id &&
+                        !pausedIds.contains(id)
+                    ) {
+                        it.copy(
+                            status = ManagedDownloadStatus.RUNNING,
+                            downloadedBytes = existing,
+                            totalBytes = total.coerceAtLeast(it.totalBytes),
+                            error = null
+                        )
+                    } else {
+                        it
+                    }
                 }
             }
 
@@ -357,6 +585,13 @@ object ManagedDownloads {
 
                 while (true) {
                     currentCoroutineContext().ensureActive()
+
+                    if (
+                        pausedIds.contains(id)
+                    ) {
+                        return
+                    }
+
                     val read = input.read(buffer)
                     if (read < 0) break
 
@@ -414,7 +649,10 @@ object ManagedDownloads {
 
                         update(context, persistNow = false) { list ->
                             list.map {
-                                if (it.id == id) it.copy(
+                                if (
+                                    it.id == id &&
+                                    !pausedIds.contains(id)
+                                ) it.copy(
                                     status = ManagedDownloadStatus.RUNNING,
                                     downloadedBytes = downloaded,
                                     totalBytes = total.coerceAtLeast(it.totalBytes),
@@ -429,6 +667,12 @@ object ManagedDownloads {
                 }
 
                 out.fd.sync()
+            }
+
+            if (
+                pausedIds.contains(id)
+            ) {
+                return
             }
 
             if (finalFile.exists()) finalFile.delete()
@@ -453,6 +697,27 @@ object ManagedDownloads {
                 }
             }
         }
+    }
+
+    private fun isWifiOrUnmetered(context: Context): Boolean {
+        val manager =
+            context.getSystemService(
+                Context.CONNECTIVITY_SERVICE
+            ) as ConnectivityManager
+
+        val network =
+            manager.activeNetwork
+                ?: return false
+
+        val capabilities =
+            manager.getNetworkCapabilities(network)
+                ?: return false
+
+        return capabilities.hasTransport(
+            NetworkCapabilities.TRANSPORT_WIFI
+        ) || capabilities.hasCapability(
+            NetworkCapabilities.NET_CAPABILITY_NOT_METERED
+        )
     }
 
     private fun ensureForegroundService(context: Context) {

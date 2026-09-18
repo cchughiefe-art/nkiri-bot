@@ -134,6 +134,39 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                     },
+                    onDownloadEpisodes = { episodes ->
+                        viewModel.downloadEpisodes(
+                            episodes = episodes,
+                            onReady = { ready, episode ->
+                                if (
+                                    ready.external
+                                ) {
+                                    return@downloadEpisodes
+                                }
+
+                                runCatching {
+                                    val title =
+                                        viewModel.state.value.title
+                                            ?: return@runCatching
+
+                                    ManagedDownloads.enqueue(
+                                        context = this,
+                                        source = ready,
+                                        mediaId = title.id,
+                                        title = title.title,
+                                        episodeLabel = episode.label
+                                    )
+                                }
+                            },
+                            onDone = { queued ->
+                                Toast.makeText(
+                                    this,
+                                    "$queued episode(s) queued in episode order",
+                                    Toast.LENGTH_LONG
+                                ).show()
+                            }
+                        )
+                    },
                     onResumePlayback = { record ->
                         viewModel.resumePlayback(record) {
                                 ready,

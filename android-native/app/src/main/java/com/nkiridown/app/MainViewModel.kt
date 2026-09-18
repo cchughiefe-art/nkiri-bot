@@ -40,6 +40,7 @@ data class UiState(
     val title: TitleInfo? = null,
     val season: Int? = null,
     val episodes: List<EpisodeItem> = emptyList(),
+    val episodeSources: Map<Int, SourceItem> = emptyMap(),
     val episode: EpisodeItem? = null,
     val sources: List<SourceItem> = emptyList(),
     val favorites: List<FavoriteItem> = emptyList(),
@@ -67,6 +68,9 @@ class MainViewModel(
 
     private val playback =
         PlaybackStore(application)
+
+    private val appPreferences =
+        AppPreferences(application)
 
     private var api =
         NkiriApi(
@@ -426,6 +430,7 @@ class MainViewModel(
                 title = preview,
                 season = null,
                 episodes = emptyList(),
+                episodeSources = emptyMap(),
                 episode = null,
                 sources = emptyList(),
                 recommendations = emptyList(),
@@ -565,6 +570,7 @@ class MainViewModel(
                 detailScreen = DetailScreen.EPISODES,
                 season = season,
                 episodes = emptyList(),
+                episodeSources = emptyMap(),
                 episode = null,
                 sources = emptyList(),
                 loading = true,
@@ -577,7 +583,9 @@ class MainViewModel(
                     api.episodes(
                         title.id,
                         season
-                    )
+                    ).sortedBy {
+                        it.episode
+                    }
 
                 if (
                     _state.value.title?.id == title.id &&
@@ -586,7 +594,57 @@ class MainViewModel(
                 ) {
                     _state.value =
                         _state.value.copy(
-                            episodes = episodes
+                            episodes = episodes,
+                            loading = false
+                        )
+                }
+
+                for (episode in episodes) {
+                    if (
+                        _state.value.title?.id != title.id ||
+                        _state.value.season != season ||
+                        _state.value.detailScreen != DetailScreen.EPISODES
+                    ) {
+                        break
+                    }
+
+                    val response =
+                        runCatching {
+                            api.sources(
+                                id = title.id,
+                                season = episode.season,
+                                episode = episode.episode
+                            )
+                        }.getOrNull()
+                            ?: continue
+
+                    val preferredQuality =
+                        appPreferences.preferredQuality()
+
+                    val source =
+                        response.sources
+                            .firstOrNull {
+                                it.quality == preferredQuality &&
+                                !it.external &&
+                                !it.url.isNullOrBlank()
+                            }
+                            ?: response.selected
+                                ?.takeIf {
+                                    !it.external &&
+                                    !it.url.isNullOrBlank()
+                                }
+                            ?: response.sources
+                                .firstOrNull {
+                                    !it.external &&
+                                    !it.url.isNullOrBlank()
+                                }
+                            ?: continue
+
+                    _state.value =
+                        _state.value.copy(
+                            episodeSources =
+                                _state.value.episodeSources +
+                                    (episode.episode to source)
                         )
                 }
             } catch (error: Exception) {
@@ -596,7 +654,9 @@ class MainViewModel(
                 ) {
                     _state.value =
                         _state.value.copy(
-                            error = error.message ?: "Could not load episodes."
+                            error =
+                                error.message
+                                    ?: "Could not load episodes."
                         )
                 }
             } finally {
@@ -767,6 +827,103 @@ class MainViewModel(
                 title,
                 episode
             )
+        }
+    }
+
+    fun downloadEpisodes(
+        episodes: List<EpisodeItem>,
+        onReady:
+            (
+                SourceItem,
+                EpisodeItem
+            ) -> Unit,
+        onDone:
+            (Int) -> Unit
+    ) {
+        val title =
+            _state.value.title
+                ?: return
+
+        val ordered =
+            episodes
+                .distinctBy {
+                    it.episode
+                }
+                .sortedBy {
+                    it.episode
+                }
+
+        request {
+            var queued = 0
+
+            for (episode in ordered) {
+                var source =
+                    _state.value.episodeSources[
+                        episode.episode
+                    ]
+
+                if (
+                    source == null ||
+                    source.external ||
+                    source.url.isNullOrBlank()
+                ) {
+                    val response =
+                        runCatching {
+                            api.sources(
+                                id = title.id,
+                                season = episode.season,
+                                episode = episode.episode
+                            )
+                        }.getOrNull()
+                            ?: continue
+
+                    val preferredQuality =
+                        appPreferences.preferredQuality()
+
+                    source =
+                        response.sources
+                            .firstOrNull {
+                                it.quality == preferredQuality &&
+                                !it.external &&
+                                !it.url.isNullOrBlank()
+                            }
+                            ?: response.selected
+                                ?.takeIf {
+                                    !it.external &&
+                                    !it.url.isNullOrBlank()
+                                }
+                            ?: response.sources
+                                .firstOrNull {
+                                    !it.external &&
+                                    !it.url.isNullOrBlank()
+                                }
+                            ?: continue
+
+                    _state.value =
+                        _state.value.copy(
+                            episodeSources =
+                                _state.value.episodeSources +
+                                    (episode.episode to source)
+                        )
+                }
+
+                val readySource =
+                    source
+                        ?: continue
+
+                if (
+                    !readySource.external &&
+                    !readySource.url.isNullOrBlank()
+                ) {
+                    onReady(
+                        readySource,
+                        episode
+                    )
+                    queued += 1
+                }
+            }
+
+            onDone(queued)
         }
     }
 

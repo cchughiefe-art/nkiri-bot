@@ -19,8 +19,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nkiridown.app.AppPreferences
 import com.nkiridown.app.DetailScreen
+import com.nkiridown.app.EpisodeItem
 import com.nkiridown.app.FeatureFlags
 import com.nkiridown.app.MainViewModel
+import com.nkiridown.app.ManagedDownloads
 import com.nkiridown.app.NkiriV2App
 import com.nkiridown.app.PlaybackRecord
 import com.nkiridown.app.SourceItem
@@ -38,6 +40,7 @@ fun TheNkiriRoot(
     onDownload: (SourceItem) -> Unit,
     onPlay: (SourceItem) -> Unit,
     onDownloadSeason: (Int) -> Unit,
+    onDownloadEpisodes: (List<EpisodeItem>) -> Unit,
     onResumePlayback: (PlaybackRecord) -> Unit,
     onOpenUrl: (String) -> Unit,
     onShare: () -> Unit
@@ -49,6 +52,7 @@ fun TheNkiriRoot(
                 onDownload,
                 onPlay,
                 onDownloadSeason,
+                onDownloadEpisodes,
                 onResumePlayback,
                 onOpenUrl,
                 onShare
@@ -73,6 +77,7 @@ private fun NkiriApp(
     onDownload: (SourceItem) -> Unit,
     onPlay: (SourceItem) -> Unit,
     onDownloadSeason: (Int) -> Unit,
+    onDownloadEpisodes: (List<EpisodeItem>) -> Unit,
     onResumePlayback: (PlaybackRecord) -> Unit,
     onOpenUrl: (String) -> Unit,
     onShare: () -> Unit
@@ -83,9 +88,36 @@ private fun NkiriApp(
     val context = LocalContext.current
     val prefs = remember { AppPreferences(context.applicationContext) }
     var dataSaver by rememberSaveable { mutableStateOf(prefs.dataSaverEnabled()) }
+    var wifiOnlyDownloads by rememberSaveable { mutableStateOf(prefs.wifiOnlyDownloads()) }
+    var autoPlayNext by rememberSaveable { mutableStateOf(prefs.autoPlayNext()) }
+    var preferredQuality by rememberSaveable { mutableIntStateOf(prefs.preferredQuality()) }
+    var showOnboarding by rememberSaveable { mutableStateOf(!prefs.onboardingSeen()) }
 
     BackHandler(enabled = state.detailScreen != DetailScreen.NONE) {
         viewModel.back()
+    }
+
+    if (showOnboarding) {
+        AlertDialog(
+            onDismissRequest = {},
+            confirmButton = {
+                Button(
+                    onClick = {
+                        prefs.setOnboardingSeen(true)
+                        showOnboarding = false
+                    }
+                ) {
+                    Text("Start using TheNkiri")
+                }
+            },
+            title = { Text("Welcome to TheNkiri") },
+            text = {
+                Text(
+                    "Search movies and series, continue where you stopped, and download episodes for offline viewing. " +
+                        "You can change download quality, Wi-Fi-only downloads and autoplay in Settings."
+                )
+            }
+        )
     }
 
     Scaffold(
@@ -132,7 +164,7 @@ private fun NkiriApp(
                         state = state,
                         onBack = viewModel::back,
                         onEpisode = viewModel::openEpisode,
-                        onDownloadSeason = onDownloadSeason
+                        onDownloadEpisodes = onDownloadEpisodes
                     )
 
                 DetailScreen.QUALITIES ->
@@ -193,10 +225,28 @@ private fun NkiriApp(
                                     state = state,
                                     section = youSection,
                                     dataSaver = dataSaver,
+                                    wifiOnlyDownloads = wifiOnlyDownloads,
+                                    autoPlayNext = autoPlayNext,
+                                    preferredQuality = preferredQuality,
                                     onSection = { youSection = it },
                                     onDataSaver = {
                                         dataSaver = it
                                         prefs.setDataSaverEnabled(it)
+                                    },
+                                    onWifiOnlyDownloads = {
+                                        wifiOnlyDownloads = it
+                                        prefs.setWifiOnlyDownloads(it)
+                                        if (!it) {
+                                            ManagedDownloads.kick(context)
+                                        }
+                                    },
+                                    onAutoPlayNext = {
+                                        autoPlayNext = it
+                                        prefs.setAutoPlayNext(it)
+                                    },
+                                    onPreferredQuality = {
+                                        preferredQuality = it
+                                        prefs.setPreferredQuality(it)
                                     },
                                     onOpenFavorite = viewModel::openFavorite,
                                     onResume = onResumePlayback,

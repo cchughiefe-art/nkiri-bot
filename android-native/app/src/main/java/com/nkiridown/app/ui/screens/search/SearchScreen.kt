@@ -35,6 +35,21 @@ fun SearchScreen(
 ) {
     var localQuery by remember(state.query) { mutableStateOf(state.query) }
     var lastSubmitted by remember { mutableStateOf("") }
+    var filter by remember { mutableStateOf("all") }
+
+    val filteredResults =
+        remember(state.results, filter) {
+            when (filter) {
+                "movies" -> state.results.filter { it.type != "series" }
+                "series" -> state.results.filter { it.type == "series" }
+                "kdrama" -> state.results.filter {
+                    it.genre.contains("korean", ignoreCase = true) ||
+                    it.genre.contains("k-drama", ignoreCase = true) ||
+                    it.title.contains("korean", ignoreCase = true)
+                }
+                else -> state.results
+            }
+        }
 
     LaunchedEffect(localQuery) {
         val q = localQuery.trim()
@@ -105,6 +120,28 @@ fun SearchScreen(
             }
         }
 
+        if (localQuery.isNotBlank()) {
+            item {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    listOf(
+                        "all" to "All",
+                        "movies" to "Movies",
+                        "series" to "Series",
+                        "kdrama" to "K-Drama"
+                    ).forEach { (key, label) ->
+                        FilterChip(
+                            selected = filter == key,
+                            onClick = { filter = key },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+            }
+        }
+
         if (localQuery.isBlank() && state.recentSearches.isNotEmpty()) {
             item {
                 SectionHeader(
@@ -151,7 +188,7 @@ fun SearchScreen(
         }
 
         if (state.sectionTitle == "Search results") {
-            items(state.results, key = { it.id }) { item ->
+            items(filteredResults, key = { it.id }) { item ->
                 SearchResultCard(item = item, onClick = { onOpenTitle(item) })
             }
         }
