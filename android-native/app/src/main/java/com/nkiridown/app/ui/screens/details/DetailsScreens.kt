@@ -25,7 +25,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
-import com.nkiridown.app.*
+import com.nkiridown.app.EpisodeItem
+import com.nkiridown.app.SearchItem
+import com.nkiridown.app.SourceItem
+import com.nkiridown.app.UiState
 import com.nkiridown.app.ui.components.*
 import com.nkiridown.app.ui.theme.*
 

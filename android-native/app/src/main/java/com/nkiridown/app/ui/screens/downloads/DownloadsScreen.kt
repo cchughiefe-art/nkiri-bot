@@ -2,6 +2,7 @@ package com.nkiridown.app.ui.screens.downloads
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Pause
@@ -15,7 +16,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.nkiridown.app.*
+import com.nkiridown.app.ManagedDownload
+import com.nkiridown.app.ManagedDownloadStatus
+import com.nkiridown.app.ManagedDownloads
 import com.nkiridown.app.ui.components.EmptyState
 import com.nkiridown.app.ui.components.SectionHeader
 import com.nkiridown.app.ui.theme.*
@@ -74,7 +77,7 @@ fun DownloadsScreen(
             }
         }
 
-        androidx.compose.foundation.lazy.items(tasks, key = { it.id }) { task ->
+        items(tasks, key = { it.id }) { task ->
             DownloadCard(task)
         }
     }

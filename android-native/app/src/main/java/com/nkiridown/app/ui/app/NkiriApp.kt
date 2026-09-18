@@ -15,8 +15,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.nkiridown.app.*
+import com.nkiridown.app.AppPreferences
+import com.nkiridown.app.DetailScreen
+import com.nkiridown.app.FeatureFlags
+import com.nkiridown.app.MainViewModel
+import com.nkiridown.app.NkiriV2App
+import com.nkiridown.app.PlaybackRecord
+import com.nkiridown.app.SourceItem
 import com.nkiridown.app.ui.screens.details.*
 import com.nkiridown.app.ui.screens.discover.DiscoverScreen
 import com.nkiridown.app.ui.screens.downloads.DownloadsScreen
@@ -87,7 +94,7 @@ private fun NkiriApp(
             if (state.detailScreen == DetailScreen.NONE) {
                 NavigationBar(
                     containerColor = NkiriSurface,
-                    tonalElevation = androidx.compose.ui.unit.dp(0f)
+                    tonalElevation = 0.dp
                 ) {
                     NavItem(AppDestination.HOME, destination, Icons.Default.Home, "Home") { destination = it }
                     if (FeatureFlags.DISCOVER) {

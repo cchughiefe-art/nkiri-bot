@@ -13,7 +13,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.nkiridown.app.*
+import com.nkiridown.app.BuildConfig
+import com.nkiridown.app.FavoriteItem
+import com.nkiridown.app.PlaybackRecord
+import com.nkiridown.app.UiState
 import com.nkiridown.app.ui.app.YouSection
 import com.nkiridown.app.ui.components.EmptyState
 import com.nkiridown.app.ui.components.MetadataLine
