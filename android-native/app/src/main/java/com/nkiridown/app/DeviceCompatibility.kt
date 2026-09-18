@@ -27,43 +27,6 @@ object DeviceCompatibility {
             else -> Build.SUPPORTED_ABIS.firstOrNull() ?: "unknown"
         }
 
-    fun packFileName(): String =
-        "TheNkiri-Compatibility-${abiToken()}.apk"
-
-    fun packDownloadUrl(): String =
-        "${BuildConfig.COMPAT_PACK_BASE_URL.trimEnd('/')}/${packFileName()}"
-
-    fun isPackInstalled(context: Context): Boolean =
-        runCatching {
-            context.packageManager.getPackageInfo(PACK_PACKAGE, 0)
-            true
-        }.getOrDefault(false)
-
-    fun openPackDownload(context: Context): Boolean =
-        runCatching {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(packDownloadUrl()))
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            context.startActivity(intent)
-            true
-        }.getOrDefault(false)
-
-    fun openInPack(
-        context: Context,
-        mediaUrl: String,
-        title: String
-    ): Boolean =
-        runCatching {
-            val intent =
-                Intent(PACK_ACTION)
-                    .setPackage(PACK_PACKAGE)
-                    .putExtra("url", mediaUrl)
-                    .putExtra("title", title)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-
-            context.startActivity(intent)
-            true
-        }.getOrDefault(false)
-
     fun openExternalPlayer(
         context: Context,
         mediaUrl: String
