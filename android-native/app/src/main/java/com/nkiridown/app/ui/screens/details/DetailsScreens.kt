@@ -154,6 +154,17 @@ fun TitleDetailsScreen(
 
         if (title.type == "series") {
             item { SectionHeader("Seasons", "Choose an episode or save a full season") }
+
+            if (state.loading && title.seasons.isEmpty()) {
+                items(3) {
+                    LoadingSkeleton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        height = 78
+                    )
+                }
+            }
             items(title.seasons, key = { it.season }) { season ->
                 Surface(
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -179,6 +190,18 @@ fun TitleDetailsScreen(
             }
         } else {
             item { SectionHeader("Watch or download", "Choose a source and quality") }
+
+            if (state.loading && state.sources.isEmpty()) {
+                items(2) {
+                    LoadingSkeleton(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        height = 126
+                    )
+                }
+            }
+
             items(state.sources.sortedByDescending { it.quality }) { source ->
                 SourceCard(source, onPlay, onDownload)
             }
@@ -234,6 +257,15 @@ fun EpisodesScreen(
             }
         }
 
+        if (state.loading && state.episodes.isEmpty()) {
+            items(4) {
+                LoadingSkeleton(
+                    modifier = Modifier.fillMaxWidth(),
+                    height = 72
+                )
+            }
+        }
+
         items(state.episodes) { episode ->
             Surface(
                 modifier = Modifier.fillMaxWidth().clickable { onEpisode(episode) },
@@ -279,6 +311,15 @@ fun QualityScreen(
                     )
                     Text("Play now or save offline", color = NkiriMuted)
                 }
+            }
+        }
+
+        if (state.loading && state.sources.isEmpty()) {
+            items(3) {
+                LoadingSkeleton(
+                    modifier = Modifier.fillMaxWidth(),
+                    height = 126
+                )
             }
         }
 

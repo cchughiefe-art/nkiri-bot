@@ -14,7 +14,7 @@ val configuredCompatPackBase =
     (project.findProperty("NKIRI_COMPAT_PACK_BASE_URL") as String?)
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
-        ?: "https://github.com/cchughiefe-art/nkiri-bot/releases/latest/download"
+        ?: "https://github.com/cchughiefe-art/nkiri-bot/releases/download/compat-v1"
 
 val releaseKeystorePath =
     System.getenv("ANDROID_KEYSTORE_PATH")

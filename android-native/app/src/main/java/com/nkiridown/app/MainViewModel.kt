@@ -403,56 +403,106 @@ class MainViewModel(
     fun openSearchItem(
         item: SearchItem
     ) {
-        request {
-            val info =
-                api.title(item.id)
+        val preview =
+            TitleInfo(
+                id = item.id,
+                provider = item.provider,
+                type = item.type,
+                title = item.title,
+                description = "",
+                year = item.year,
+                genre = item.genre,
+                country = null,
+                rating = item.rating,
+                poster = item.poster,
+                subtitles = "",
+                trailer = null,
+                seasons = emptyList()
+            )
 
-            val sources =
+        _state.value =
+            _state.value.copy(
+                detailScreen = DetailScreen.TITLE,
+                title = preview,
+                season = null,
+                episodes = emptyList(),
+                episode = null,
+                sources = emptyList(),
+                recommendations = emptyList(),
+                isCurrentFavorite = store.isFavorite(item.id),
+                loading = true,
+                error = null
+            )
+
+        viewModelScope.launch {
+            try {
+                val info = api.title(item.id)
+
                 if (
-                    info.type ==
-                    "movie"
+                    _state.value.title?.id != item.id ||
+                    _state.value.detailScreen != DetailScreen.TITLE
                 ) {
-                    api.sources(
-                        info.id
-                    ).sources
-                } else {
-                    emptyList()
+                    return@launch
                 }
 
-            val recommendations =
-                runCatching {
-                    api.latest(
-                        if (
-                            info.type ==
-                            "series"
-                        ) "series"
-                        else "movie"
+                _state.value =
+                    _state.value.copy(
+                        title = info,
+                        isCurrentFavorite = store.isFavorite(info.id)
                     )
-                        .filterNot {
-                            it.id == info.id
-                        }
-                        .take(12)
-                }.getOrDefault(
-                    emptyList()
-                )
 
-            _state.value =
-                _state.value.copy(
-                    detailScreen =
-                        DetailScreen.TITLE,
-                    title = info,
-                    season = null,
-                    episodes =
-                        emptyList(),
-                    episode = null,
-                    sources = sources,
-                    recommendations =
-                        recommendations,
-                    isCurrentFavorite =
-                        store.isFavorite(
-                            info.id
+                coroutineScope {
+                    val sources =
+                        async {
+                            if (info.type == "movie") {
+                                runCatching {
+                                    api.sources(info.id).sources
+                                }.getOrDefault(emptyList())
+                            } else {
+                                emptyList()
+                            }
+                        }
+
+                    val recommendations =
+                        async {
+                            runCatching {
+                                api.latest(
+                                    if (info.type == "series") "series" else "movie"
+                                )
+                                    .filterNot { it.id == info.id }
+                                    .take(12)
+                            }.getOrDefault(emptyList())
+                        }
+
+                    val loadedSources = sources.await()
+                    val loadedRecommendations = recommendations.await()
+
+                    if (
+                        _state.value.title?.id == item.id &&
+                        _state.value.detailScreen == DetailScreen.TITLE
+                    ) {
+                        _state.value =
+                            _state.value.copy(
+                                sources = loadedSources,
+                                recommendations = loadedRecommendations
+                            )
+                    }
+                }
+            } catch (error: Exception) {
+                if (_state.value.title?.id == item.id) {
+                    _state.value =
+                        _state.value.copy(
+                            error = error.message ?: "Could not load this title."
                         )
-                )
+                }
+            } finally {
+                if (_state.value.title?.id == item.id) {
+                    _state.value =
+                        _state.value.copy(
+                            loading = false
+                        )
+                }
+            }
         }
     }
 
@@ -510,23 +560,56 @@ class MainViewModel(
             _state.value.title
                 ?: return
 
-        request {
-            val episodes =
-                api.episodes(
-                    title.id,
-                    season
-                )
+        _state.value =
+            _state.value.copy(
+                detailScreen = DetailScreen.EPISODES,
+                season = season,
+                episodes = emptyList(),
+                episode = null,
+                sources = emptyList(),
+                loading = true,
+                error = null
+            )
 
-            _state.value =
-                _state.value.copy(
-                    detailScreen =
-                        DetailScreen.EPISODES,
-                    season = season,
-                    episodes = episodes,
-                    episode = null,
-                    sources =
-                        emptyList()
-                )
+        viewModelScope.launch {
+            try {
+                val episodes =
+                    api.episodes(
+                        title.id,
+                        season
+                    )
+
+                if (
+                    _state.value.title?.id == title.id &&
+                    _state.value.season == season &&
+                    _state.value.detailScreen == DetailScreen.EPISODES
+                ) {
+                    _state.value =
+                        _state.value.copy(
+                            episodes = episodes
+                        )
+                }
+            } catch (error: Exception) {
+                if (
+                    _state.value.title?.id == title.id &&
+                    _state.value.season == season
+                ) {
+                    _state.value =
+                        _state.value.copy(
+                            error = error.message ?: "Could not load episodes."
+                        )
+                }
+            } finally {
+                if (
+                    _state.value.title?.id == title.id &&
+                    _state.value.season == season
+                ) {
+                    _state.value =
+                        _state.value.copy(
+                            loading = false
+                        )
+                }
+            }
         }
     }
 
@@ -537,23 +620,55 @@ class MainViewModel(
             _state.value.title
                 ?: return
 
-        request {
-            val sources =
-                api.sources(
-                    id = title.id,
-                    season =
-                        episode.season,
-                    episode =
-                        episode.episode
-                ).sources
+        _state.value =
+            _state.value.copy(
+                detailScreen = DetailScreen.QUALITIES,
+                episode = episode,
+                sources = emptyList(),
+                loading = true,
+                error = null
+            )
 
-            _state.value =
-                _state.value.copy(
-                    detailScreen =
-                        DetailScreen.QUALITIES,
-                    episode = episode,
-                    sources = sources
-                )
+        viewModelScope.launch {
+            try {
+                val sources =
+                    api.sources(
+                        id = title.id,
+                        season = episode.season,
+                        episode = episode.episode
+                    ).sources
+
+                if (
+                    _state.value.title?.id == title.id &&
+                    _state.value.episode == episode &&
+                    _state.value.detailScreen == DetailScreen.QUALITIES
+                ) {
+                    _state.value =
+                        _state.value.copy(
+                            sources = sources
+                        )
+                }
+            } catch (error: Exception) {
+                if (
+                    _state.value.title?.id == title.id &&
+                    _state.value.episode == episode
+                ) {
+                    _state.value =
+                        _state.value.copy(
+                            error = error.message ?: "Could not load qualities."
+                        )
+                }
+            } finally {
+                if (
+                    _state.value.title?.id == title.id &&
+                    _state.value.episode == episode
+                ) {
+                    _state.value =
+                        _state.value.copy(
+                            loading = false
+                        )
+                }
+            }
         }
     }
 
