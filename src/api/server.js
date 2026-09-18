@@ -333,146 +333,223 @@ async function sourcesFor(id, season = 0, episode = 0, quality = 0) {
 
 
 async function buildHomePayload() {
-  const cacheKey = "home:v4:fzmovies";
+  const cacheKey =
+    "home:v5:fast";
 
   const cached =
     getCached(cacheKey);
 
-  if (cached)
+  if (
+    cached?.sections?.length
+  ) {
     return cached;
+  }
 
-  const safeFz = async options => {
+  let fzItems = [];
+
+  try {
+    /*
+     * One FZ request instead of
+     * multiple category requests.
+     */
+    fzItems =
+      await latestFz({
+        limit: 50
+      });
+  } catch (error) {
+    console.error(
+      "FZMOVIES HOME ERROR:",
+      error.message
+    );
+  }
+
+  const unique =
+    items => {
+      const seen =
+        new Set();
+
+      return (items || [])
+        .filter(item => {
+          if (!item?.id) {
+            return false;
+          }
+
+          const key =
+            `${item.provider}:${item.id}`;
+
+          if (
+            seen.has(key)
+          ) {
+            return false;
+          }
+
+          seen.add(key);
+          return true;
+        })
+        .slice(0, 12);
+    };
+
+  let sections = [];
+
+  if (fzItems.length) {
+    const latest =
+      unique(fzItems);
+
+    const movies =
+      unique(
+        fzItems.filter(
+          item =>
+            item.type === "movie"
+        )
+      );
+
+    const series =
+      unique(
+        fzItems.filter(
+          item =>
+            item.type === "series"
+        )
+      );
+
+    const korean =
+      unique(
+        fzItems.filter(
+          item =>
+            /korea|korean|k-drama|kdrama/i.test(
+              item.title || ""
+            )
+        )
+      );
+
+    const southAfrican =
+      unique(
+        fzItems.filter(
+          item =>
+            /south africa|south african|mzansi/i.test(
+              item.title || ""
+            )
+        )
+      );
+
+    sections = [
+      {
+        id: "fz-trending",
+        title: "Trending Now",
+        subtitle:
+          "Popular on TheNkiri",
+        items: latest
+      },
+      {
+        id: "fz-latest",
+        title: "Recently Added",
+        subtitle:
+          "Fresh additions",
+        items: latest
+      },
+      {
+        id: "fz-movies",
+        title: "Movies",
+        subtitle:
+          "Latest movies",
+        items: movies
+      },
+      {
+        id: "fz-series",
+        title: "TV Series",
+        subtitle:
+          "New episodes and series",
+        items: series
+      },
+      {
+        id: "fz-korean",
+        title: "Korean Series",
+        subtitle:
+          "K-Drama and Korean shows",
+        items: korean
+      },
+      {
+        id: "fz-sa",
+        title:
+          "South African Series",
+        subtitle:
+          "South African shows",
+        items: southAfrican
+      }
+    ].filter(
+      section =>
+        section.items.length
+    );
+  }
+
+  /*
+   * FZ failure should never make
+   * the Android homepage empty.
+   */
+  if (!sections.length) {
     try {
-      return await latestFz(options);
+      const fallback =
+        await getLatest(
+          "all",
+          {
+            page: 1,
+            perPage: 8
+          }
+        );
+
+      const items =
+        unique(
+          fallback.results
+            .map(toSearchItem)
+            .filter(Boolean)
+        );
+
+      if (items.length) {
+        sections = [
+          {
+            id:
+              "fallback-latest",
+            title:
+              "Recently Added",
+            subtitle:
+              "Latest available titles",
+            items
+          }
+        ];
+      }
     } catch (error) {
       console.error(
-        "FZMOVIES HOME ERROR:",
+        "HOME FALLBACK ERROR:",
         error.message
       );
-
-      return [];
     }
+  }
+
+  const payload = {
+    provider:
+      fzItems.length
+        ? "fzmovies"
+        : "fallback",
+
+    sections,
+
+    generatedAt:
+      new Date()
+        .toISOString()
   };
 
-  const specs = [
-    {
-      id: "fz-trending",
-      title: "Trending Now",
-      subtitle: "Popular on TheNkiri",
-      options: {
-        category: 7,
-        limit: 12
-      }
-    },
-    {
-      id: "fz-latest",
-      title: "Recently Added",
-      subtitle: "Fresh additions",
-      options: {
-        limit: 12
-      }
-    },
-    {
-      id: "fz-movies",
-      title: "Movies",
-      subtitle: "Latest movies",
-      options: {
-        category: 3,
-        limit: 12
-      }
-    },
-    {
-      id: "fz-series",
-      title: "TV Series",
-      subtitle: "New episodes and series",
-      options: {
-        category: 4,
-        limit: 12
-      }
-    },
-    {
-      id: "fz-korean",
-      title: "Korean Series",
-      subtitle: "K-Drama and Korean shows",
-      options: {
-        category: 5,
-        limit: 12
-      }
-    },
-    {
-      id: "fz-sa",
-      title: "South African Series",
-      subtitle: "South African shows",
-      options: {
-        category: 6,
-        limit: 12
-      }
-    }
-  ];
+  /*
+   * Never cache an empty homepage.
+   */
+  if (
+    sections.length
+  ) {
+    return setCached(
+      cacheKey,
+      payload
+    );
+  }
 
-  const sections =
-    (
-      await Promise.all(
-        specs.map(
-          async spec => ({
-            id: spec.id,
-            title: spec.title,
-            subtitle:
-              spec.subtitle,
-            items:
-              await safeFz(
-                spec.options
-              )
-          })
-        )
-      )
-    )
-      .map(section => {
-        const seen =
-          new Set();
-
-        return {
-          ...section,
-
-          items:
-            section.items
-              .filter(item => {
-                if (
-                  !item?.id ||
-                  seen.has(
-                    item.id
-                  )
-                ) {
-                  return false;
-                }
-
-                seen.add(
-                  item.id
-                );
-
-                return true;
-              })
-              .slice(0, 12)
-        };
-      })
-      .filter(
-        section =>
-          section.items.length
-      );
-
-  return setCached(
-    cacheKey,
-    {
-      provider:
-        "fzmovies",
-
-      sections,
-
-      generatedAt:
-        new Date()
-          .toISOString()
-    }
-  );
+  return payload;
 }
 
 async function handle(req, res) {
