@@ -1,5 +1,6 @@
-import android.os.Environment
 package com.nkiridown.app.ui.screens.details
+
+import android.os.Environment
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
