@@ -45,6 +45,15 @@ const {
 } = require("./core/media");
 
 const {
+  search9jaRocks,
+  get9jaTitle
+} = require("./providers/9jarocks");
+
+const {
+  resolveLoadedFiles
+} = require("./resolvers/loadedfiles");
+
+const {
   homeText: decoratedHomeText,
   movieCaption,
   seriesCaption,
@@ -706,6 +715,59 @@ async function renderSearch(
   } catch (error) {
     console.error(
       "FZMOVIES BOT SEARCH ERROR:",
+      error.message
+    );
+  }
+
+  /*
+   * 9JAROCKS SEARCH
+   *
+   * Completely isolated from the other providers.
+   * If 9jaRocks is unavailable, normal search still works.
+   */
+  try {
+    const jarocks =
+      await search9jaRocks(
+        query,
+        PAGE_SIZE
+      );
+
+    if (jarocks.length) {
+      const seen =
+        new Set(
+          result.results.map(
+            item =>
+              `${item.provider || "thenkiri"}:${item.url}`
+          )
+        );
+
+      for (const item of jarocks) {
+        const key =
+          `9jarocks:${item.url}`;
+
+        if (!seen.has(key)) {
+          seen.add(key);
+
+          result.results.push({
+            ...item,
+            provider:
+              "9jarocks"
+          });
+        }
+      }
+
+      result.total =
+        result.results.length;
+
+      result.pages = 1;
+      result.page = 1;
+      result.hasPrevious = false;
+      result.hasNext = false;
+    }
+
+  } catch (error) {
+    console.error(
+      "9JAROCKS SEARCH ERROR:",
       error.message
     );
   }
@@ -2138,6 +2200,182 @@ bot.on(
         );
 
       try {
+        /*
+         * 9JAROCKS TITLE
+         */
+        if (
+          item.provider === "9jarocks"
+        ) {
+          const jr =
+            await get9jaTitle(
+              item.url
+            );
+
+          await bot.deleteMessage(
+            chatId,
+            status.message_id
+          ).catch(() => {});
+
+          /*
+           * 9JAROCKS SERIES
+           */
+          if (
+            jr.type === "series" &&
+            Array.isArray(jr.episodes) &&
+            jr.episodes.length
+          ) {
+            const buttons = [];
+
+            for (
+              const episode
+              of jr.episodes
+            ) {
+              buttons.push([
+                {
+                  text:
+                    `▶️ ${episode.label}`,
+                  callback_data:
+                    create(
+                      "9jepisode",
+                      {
+                        title:
+                          jr.cleanTitle ||
+                          jr.title,
+                        label:
+                          episode.label,
+                        episode:
+                          episode.episode,
+                        sources:
+                          episode.sources || []
+                      }
+                    )
+                }
+              ]);
+            }
+
+            buttons.push([
+              {
+                text:
+                  "🔎 Search Again",
+                callback_data:
+                  "home:search"
+              },
+              {
+                text:
+                  "🏠 Home",
+                callback_data:
+                  "home:menu"
+              }
+            ]);
+
+            const caption =
+              `📺 ${jr.cleanTitle || jr.title}\n\n` +
+              `${jr.episodes.length} episode(s) found.\n` +
+              "Choose an episode:";
+
+            if (jr.image) {
+              await bot.sendPhoto(
+                chatId,
+                jr.image,
+                {
+                  caption,
+                  reply_markup: {
+                    inline_keyboard:
+                      buttons
+                  }
+                }
+              );
+            } else {
+              await bot.sendMessage(
+                chatId,
+                caption,
+                {
+                  reply_markup: {
+                    inline_keyboard:
+                      buttons
+                  }
+                }
+              );
+            }
+
+            return;
+          }
+
+          /*
+           * 9JAROCKS MOVIE
+           */
+          const downloadCallback =
+            create(
+              "9jdownload",
+              {
+                title:
+                  jr.cleanTitle ||
+                  jr.title,
+                sources:
+                  jr.downloadLinks || []
+              }
+            );
+
+          const caption =
+            `🎬 ${jr.cleanTitle || jr.title}\n\n` +
+            (
+              jr.description
+                ? `${jr.description}\n\n`
+                : ""
+            ) +
+            "Tap below to generate a fresh download link.";
+
+          const keyboard = {
+            inline_keyboard: [
+              [
+                {
+                  text:
+                    "⬇️ Download Movie",
+                  callback_data:
+                    downloadCallback
+                }
+              ],
+              [
+                {
+                  text:
+                    "🔎 Search Again",
+                  callback_data:
+                    "home:search"
+                },
+                {
+                  text:
+                    "🏠 Home",
+                  callback_data:
+                    "home:menu"
+                }
+              ]
+            ]
+          };
+
+          if (jr.image) {
+            await bot.sendPhoto(
+              chatId,
+              jr.image,
+              {
+                caption,
+                reply_markup:
+                  keyboard
+              }
+            );
+          } else {
+            await bot.sendMessage(
+              chatId,
+              caption,
+              {
+                reply_markup:
+                  keyboard
+              }
+            );
+          }
+
+          return;
+        }
+
         if (
           item.provider === "fzmovies" ||
           isFzUrl(item.url)
@@ -2994,6 +3232,365 @@ bot.on(
           }
         }
       );
+
+      return;
+    }
+
+    /*
+     * 9JAROCKS EPISODE DOWNLOAD
+     */
+    if (
+      data.startsWith(
+        "9jepisode:"
+      )
+    ) {
+      const item =
+        get(
+          data,
+          "9jepisode"
+        );
+
+      if (!item) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "This episode selection expired."
+          }
+        );
+
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id,
+        {
+          text:
+            "Generating download link..."
+        }
+      );
+
+      const status =
+        await bot.sendMessage(
+          chatId,
+          "Generating a fresh 9jaRocks episode link..."
+        );
+
+      try {
+        let resolved = null;
+
+        for (
+          const source
+          of item.sources || []
+        ) {
+          try {
+            if (
+              source?.url &&
+              /loadedfiles\.net/i.test(
+                source.url
+              )
+            ) {
+              resolved =
+                await resolveLoadedFiles(
+                  source.url
+                );
+            }
+
+            if (
+              resolved?.directUrl
+            ) {
+              break;
+            }
+
+          } catch (error) {
+            console.error(
+              "9JAROCKS MIRROR ERROR:",
+              error.message
+            );
+          }
+        }
+
+        if (!resolved?.directUrl) {
+          throw new Error(
+            "No working episode source"
+          );
+        }
+
+        incrementStat(
+          "downloads"
+        );
+
+        incrementUserStat(
+          query.from.id,
+          "downloads"
+        );
+
+        trackDownload({
+          userId:
+            query.from.id,
+          username:
+            query.from.username || null,
+          type:
+            "episode",
+          title:
+            item.title,
+          episode:
+            item.label,
+          provider:
+            "9jarocks"
+        });
+
+        await bot.editMessageText(
+          `📺 ${item.title}\n` +
+          `${item.label}\n\n` +
+          "Your download link is ready.\n" +
+          "Start it now because temporary links can expire.",
+          {
+            chat_id:
+              chatId,
+            message_id:
+              status.message_id,
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text:
+                      "⬇️ Download Episode",
+                    url:
+                      resolved.directUrl
+                  }
+                ],
+                [
+                  {
+                    text:
+                      "🏠 Home",
+                    callback_data:
+                      "home:menu"
+                  }
+                ]
+              ]
+            }
+          }
+        );
+
+      } catch (error) {
+        console.error(
+          "9JAROCKS EPISODE ERROR:",
+          error
+        );
+
+        incrementStat(
+          "failedDownloads"
+        );
+
+        await bot.editMessageText(
+          "❌ This 9jaRocks episode is currently unavailable.",
+          {
+            chat_id:
+              chatId,
+            message_id:
+              status.message_id,
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text:
+                      "🔎 Search Again",
+                    callback_data:
+                      "home:search"
+                  }
+                ],
+                [
+                  {
+                    text:
+                      "🏠 Home",
+                    callback_data:
+                      "home:menu"
+                  }
+                ]
+              ]
+            }
+          }
+        );
+      }
+
+      return;
+    }
+
+    /*
+     * 9JAROCKS MOVIE DOWNLOAD
+     */
+    if (
+      data.startsWith(
+        "9jdownload:"
+      )
+    ) {
+      const item =
+        get(
+          data,
+          "9jdownload"
+        );
+
+      if (!item) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "This download request expired."
+          }
+        );
+
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id,
+        {
+          text:
+            "Generating download link..."
+        }
+      );
+
+      const status =
+        await bot.sendMessage(
+          chatId,
+          "Generating a fresh 9jaRocks download link..."
+        );
+
+      try {
+        let resolved = null;
+
+        for (
+          const source
+          of item.sources || []
+        ) {
+          try {
+            if (
+              source?.url &&
+              /loadedfiles\.net/i.test(
+                source.url
+              )
+            ) {
+              resolved =
+                await resolveLoadedFiles(
+                  source.url
+                );
+            }
+
+            if (
+              resolved?.directUrl
+            ) {
+              break;
+            }
+
+          } catch (error) {
+            console.error(
+              "9JAROCKS MIRROR ERROR:",
+              error.message
+            );
+          }
+        }
+
+        if (!resolved?.directUrl) {
+          throw new Error(
+            "No working movie source"
+          );
+        }
+
+        incrementStat(
+          "downloads"
+        );
+
+        incrementUserStat(
+          query.from.id,
+          "downloads"
+        );
+
+        trackDownload({
+          userId:
+            query.from.id,
+          username:
+            query.from.username || null,
+          type:
+            "movie",
+          title:
+            item.title,
+          provider:
+            "9jarocks"
+        });
+
+        await bot.editMessageText(
+          `🎬 ${item.title}\n\n` +
+          "Your download link is ready.\n" +
+          "Start it now because temporary links can expire.",
+          {
+            chat_id:
+              chatId,
+            message_id:
+              status.message_id,
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text:
+                      "⬇️ Download Movie",
+                    url:
+                      resolved.directUrl
+                  }
+                ],
+                [
+                  {
+                    text:
+                      "🏠 Home",
+                    callback_data:
+                      "home:menu"
+                  }
+                ]
+              ]
+            }
+          }
+        );
+
+      } catch (error) {
+        console.error(
+          "9JAROCKS MOVIE ERROR:",
+          error
+        );
+
+        incrementStat(
+          "failedDownloads"
+        );
+
+        await bot.editMessageText(
+          "❌ This 9jaRocks movie is currently unavailable.",
+          {
+            chat_id:
+              chatId,
+            message_id:
+              status.message_id,
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text:
+                      "🔎 Search Again",
+                    callback_data:
+                      "home:search"
+                  }
+                ],
+                [
+                  {
+                    text:
+                      "🏠 Home",
+                    callback_data:
+                      "home:menu"
+                  }
+                ]
+              ]
+            }
+          }
+        );
+      }
 
       return;
     }
