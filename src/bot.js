@@ -772,6 +772,36 @@ async function renderSearch(
     );
   }
 
+  /*
+   * Final merged search ordering.
+   *
+   * Alphabetical A-Z with natural
+   * numeric sorting:
+   * Season 1, Season 2, Season 10.
+   */
+  result.results.sort(
+    (a, b) =>
+      String(
+        a.cleanTitle ||
+        a.title ||
+        ""
+      ).localeCompare(
+        String(
+          b.cleanTitle ||
+          b.title ||
+          ""
+        ),
+        undefined,
+        {
+          numeric: true,
+          sensitivity: "base"
+        }
+      )
+  );
+
+  result.total =
+    result.results.length;
+
   if (!result.results.length) {
     const text =
       `No results found for "${query}".\n\n` +

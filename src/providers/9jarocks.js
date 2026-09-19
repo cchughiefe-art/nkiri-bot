@@ -249,7 +249,7 @@ function parseSearch(html) {
 
 async function search9jaRocks(
   query,
-  limit = 20
+  limit = 30
 ) {
   const q =
     String(query || "")
@@ -258,29 +258,78 @@ async function search9jaRocks(
   if (!q)
     return [];
 
-  const url =
-    new URL(
-      "/findx",
-      BASE
-    );
+  const collected = [];
+  const seen = new Set();
 
-  url.searchParams.set(
-    "search",
-    q
-  );
+  function add(items) {
+    for (const item of items) {
+      if (
+        !item?.url ||
+        seen.has(item.url)
+      ) {
+        continue;
+      }
 
-  const response =
-    await request(
-      url.href
-    );
+      seen.add(item.url);
+      collected.push(item);
+    }
+  }
 
-  const html =
-    await response.text();
+  /*
+   * 9jaRocks search is paginated.
+   * Older seasons such as Season 1 may be
+   * several pages behind the newest result.
+   */
+  const MAX_PAGES = 12;
 
-  const items =
-    parseSearch(
-      html
-    );
+  for (
+    let page = 1;
+    page <= MAX_PAGES;
+    page++
+  ) {
+    try {
+      const url =
+        page === 1
+          ? new URL(
+              "/findx",
+              BASE
+            )
+          : new URL(
+              `/findx/page/${page}`,
+              BASE
+            );
+
+      url.searchParams.set(
+        "search",
+        q
+      );
+
+      const response =
+        await request(
+          url.href
+        );
+
+      const html =
+        await response.text();
+
+      const items =
+        parseSearch(
+          html
+        );
+
+      if (!items.length) {
+        break;
+      }
+
+      add(items);
+
+    } catch (error) {
+      console.error(
+        `9jaRocks search page ${page} error:`,
+        error.message
+      );
+    }
+  }
 
   const words =
     q.toLowerCase()
@@ -291,47 +340,58 @@ async function search9jaRocks(
       .split(/\s+/)
       .filter(Boolean);
 
-  return [...items]
-    .map(item => {
-      const title =
-        item.title
-          .toLowerCase();
+  const filtered =
+    collected.filter(
+      item => {
+        const title =
+          String(
+            item.title || ""
+          ).toLowerCase();
 
-      let score = 0;
-
-      for (
-        const word
-        of words
-      ) {
-        if (
-          title.includes(word)
-        ) {
-          score++;
-        }
+        return words.every(
+          word =>
+            title.includes(word)
+        );
       }
-
-      return {
-        ...item,
-        score
-      };
-    })
-    .sort(
-      (a, b) =>
-        b.score - a.score
-    )
-    .slice(
-      0,
-      Math.max(
-        1,
-        Number(limit) || 20
-      )
-    )
-    .map(
-      ({
-        score,
-        ...item
-      }) => item
     );
+
+  /*
+   * Natural sorting:
+   *
+   * Season 1
+   * Season 2
+   * Season 9
+   * Season 10
+   *
+   * rather than:
+   *
+   * Season 1
+   * Season 10
+   * Season 2
+   */
+  filtered.sort(
+    (a, b) =>
+      String(
+        a.title || ""
+      ).localeCompare(
+        String(
+          b.title || ""
+        ),
+        undefined,
+        {
+          numeric: true,
+          sensitivity: "base"
+        }
+      )
+  );
+
+  return filtered.slice(
+    0,
+    Math.max(
+      1,
+      Number(limit) || 30
+    )
+  );
 }
 
 function parseEpisodeSources(
