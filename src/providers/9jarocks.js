@@ -398,6 +398,7 @@ function parseEpisodeSources(
   $
 ) {
   const episodes = [];
+  const seen = new Set();
 
   $('a[href*="loadedfiles.net"]')
     .each(
@@ -407,9 +408,7 @@ function parseEpisodeSources(
 
         const url =
           absolute(
-            anchor.attr(
-              "href"
-            )
+            anchor.attr("href")
           );
 
         if (!url)
@@ -425,32 +424,113 @@ function parseEpisodeSources(
             parent.text()
           );
 
-        const match =
-          context.match(
-            /\bEPISODE\s*0?(\d{1,3})\b/i
+        let season = null;
+        let episode = null;
+
+        let decodedUrl = url;
+
+        try {
+          decodedUrl =
+            decodeURIComponent(url);
+        } catch {}
+
+        /*
+         * Common filename forms:
+         *
+         * S07E01
+         * S07.E01
+         * S07-E01
+         * 7x01
+         */
+        let match =
+          decodedUrl.match(
+            /\bS0?(\d{1,3})[.\s_-]*E0?(\d{1,3})\b/i
           );
 
-        if (!match)
+        if (!match) {
+          match =
+            decodedUrl.match(
+              /\b0?(\d{1,3})x0?(\d{1,3})\b/i
+            );
+        }
+
+        if (!match) {
+          match =
+            context.match(
+              /\bS0?(\d{1,3})[.\s_-]*E0?(\d{1,3})\b/i
+            );
+        }
+
+        if (!match) {
+          match =
+            context.match(
+              /\b0?(\d{1,3})x0?(\d{1,3})\b/i
+            );
+        }
+
+        if (match) {
+          season =
+            Number(match[1]);
+
+          episode =
+            Number(match[2]);
+        }
+
+        /*
+         * Pages commonly label links simply as:
+         * EPISODE 1
+         */
+        if (episode === null) {
+          const epMatch =
+            context.match(
+              /\bEPISODE\s*0?(\d{1,3})\b/i
+            );
+
+          if (epMatch) {
+            episode =
+              Number(epMatch[1]);
+          }
+        }
+
+        if (episode === null)
           return;
 
-        const episode =
-          Number(
-            match[1]
-          );
+        const key =
+          `${url}:${episode}`;
 
+        if (seen.has(key))
+          return;
+
+        seen.add(key);
+
+        /*
+         * Keep original DOM order.
+         *
+         * This is important for bundled pages:
+         * S7 E1 ... E22
+         * S8 E1 ... E16
+         *
+         * Sorting here would destroy the reset
+         * that tells us where Season 8 begins.
+         */
         episodes.push({
+          season,
           episode,
+
           label:
             `Episode ${episode}`,
+
           sources: [
             {
               host:
                 "loadedfiles.net",
+
               label:
                 clean(
                   anchor.text()
                 ) ||
-                "Server 1",
+                "DOWNLOAD",
+
               url
             }
           ]
@@ -458,12 +538,255 @@ function parseEpisodeSources(
       }
     );
 
-  return episodes
-    .sort(
-      (a, b) =>
-        a.episode -
-        b.episode
+  return episodes;
+}
+
+function extractSeasonRange(
+  title
+) {
+  const text =
+    String(title || "");
+
+  const range =
+    text.match(
+      /\bseason\s*0?(\d{1,3})\s*[-–—&]\s*(?:season\s*)?0?(\d{1,3})\b/i
     );
+
+  if (range) {
+    return {
+      start:
+        Number(range[1]),
+      end:
+        Number(range[2])
+    };
+  }
+
+  const single =
+    extractSeason(text);
+
+  return single
+    ? {
+        start: single,
+        end: single
+      }
+    : null;
+}
+
+function groupEpisodesBySeason(
+  episodes,
+  fallbackSeason = null,
+  title = ""
+) {
+  const list =
+    Array.isArray(episodes)
+      ? episodes
+      : [];
+
+  if (!list.length)
+    return [];
+
+  const range =
+    extractSeasonRange(
+      title
+    );
+
+  /*
+   * If filenames explicitly told us seasons,
+   * use those values directly.
+   */
+  const explicitSeasons =
+    new Set(
+      list
+        .map(x => x.season)
+        .filter(
+          x =>
+            Number.isInteger(x)
+        )
+    );
+
+  if (explicitSeasons.size > 1) {
+    const groups =
+      new Map();
+
+    for (const item of list) {
+      const season =
+        item.season;
+
+      if (
+        !Number.isInteger(season)
+      ) {
+        continue;
+      }
+
+      if (!groups.has(season)) {
+        groups.set(
+          season,
+          []
+        );
+      }
+
+      groups
+        .get(season)
+        .push({
+          ...item,
+          season,
+          label:
+            `Episode ${item.episode}`
+        });
+    }
+
+    return [...groups.entries()]
+      .sort(
+        (a, b) =>
+          a[0] - b[0]
+      )
+      .map(
+        ([season, items]) => ({
+          season,
+          episodes:
+            items.sort(
+              (a, b) =>
+                a.episode -
+                b.episode
+            ),
+          count:
+            items.length
+        })
+      );
+  }
+
+  /*
+   * Bundled-page inference.
+   *
+   * Example:
+   * Season 7-8 page:
+   *
+   * 1,2,...22,1,2,...16
+   *
+   * The reset from 22 to 1 means
+   * the next season has started.
+   */
+  if (
+    range &&
+    range.end >
+      range.start
+  ) {
+    const groups = [];
+    let currentSeason =
+      range.start;
+
+    let previousEpisode =
+      null;
+
+    let current = {
+      season:
+        currentSeason,
+      episodes: []
+    };
+
+    for (
+      const item
+      of list
+    ) {
+      /*
+       * Episode numbering restarted.
+       * Advance to the next season.
+       */
+      if (
+        previousEpisode !== null &&
+        item.episode <
+          previousEpisode &&
+        currentSeason <
+          range.end
+      ) {
+        if (
+          current.episodes.length
+        ) {
+          groups.push(
+            current
+          );
+        }
+
+        currentSeason++;
+
+        current = {
+          season:
+            currentSeason,
+          episodes: []
+        };
+      }
+
+      current.episodes.push({
+        ...item,
+        season:
+          currentSeason,
+        label:
+          `Episode ${item.episode}`
+      });
+
+      previousEpisode =
+        item.episode;
+    }
+
+    if (
+      current.episodes.length
+    ) {
+      groups.push(current);
+    }
+
+    return groups.map(
+      group => ({
+        ...group,
+
+        episodes:
+          group.episodes.sort(
+            (a, b) =>
+              a.episode -
+              b.episode
+          ),
+
+        count:
+          group.episodes.length
+      })
+    );
+  }
+
+  /*
+   * Normal single-season page.
+   */
+  const season =
+    fallbackSeason ||
+    range?.start ||
+    null;
+
+  if (!season)
+    return [];
+
+  const sorted =
+    list
+      .map(
+        item => ({
+          ...item,
+          season,
+          label:
+            `Episode ${item.episode}`
+        })
+      )
+      .sort(
+        (a, b) =>
+          a.episode -
+          b.episode
+      );
+
+  return [
+    {
+      season,
+      episodes:
+        sorted,
+      count:
+        sorted.length
+    }
+  ];
 }
 
 function parseMovieSources(
@@ -560,6 +883,13 @@ async function get9jaTitle(
       $
     );
 
+  const seasonGroups =
+    groupEpisodesBySeason(
+      episodes,
+      season,
+      title
+    );
+
   const downloadLinks =
     type === "movie"
       ? parseMovieSources($)
@@ -587,6 +917,7 @@ async function get9jaTitle(
     url:
       response.url,
     episodes,
+    seasonGroups,
     downloadLinks
   };
 }

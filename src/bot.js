@@ -2254,6 +2254,108 @@ bot.on(
             Array.isArray(jr.episodes) &&
             jr.episodes.length
           ) {
+
+            /*
+             * Bundled pages such as:
+             *
+             * Season 7 – 8
+             *
+             * should show seasons first.
+             */
+            if (
+              Array.isArray(
+                jr.seasonGroups
+              ) &&
+              jr.seasonGroups.length > 1
+            ) {
+              const buttons =
+                jr.seasonGroups.map(
+                  group => [
+                    {
+                      text:
+                        `📺 Season ${group.season} — ${group.count} Episodes`,
+
+                      callback_data:
+                        create(
+                          "9jseason",
+                          {
+                            title:
+                              jr.cleanTitle ||
+                              jr.title,
+
+                            season:
+                              group.season,
+
+                            episodes:
+                              group.episodes
+                          }
+                        )
+                    }
+                  ]
+                );
+
+              buttons.push([
+                {
+                  text:
+                    "🔎 Search Again",
+                  callback_data:
+                    "home:search"
+                },
+                {
+                  text:
+                    "🏠 Home",
+                  callback_data:
+                    "home:menu"
+                }
+              ]);
+
+              const baseTitle =
+                String(
+                  jr.cleanTitle ||
+                  jr.title
+                )
+                  .replace(
+                    /\s+season\s+\d+\s*[-–]\s*\d+.*$/i,
+                    ""
+                  )
+                  .trim();
+
+              const caption =
+                `📺 ${baseTitle}\n\n` +
+                `${jr.seasonGroups.length} seasons found.\n` +
+                "Choose a season:";
+
+              if (jr.image) {
+                await bot.sendPhoto(
+                  chatId,
+                  jr.image,
+                  {
+                    caption,
+                    reply_markup: {
+                      inline_keyboard:
+                        buttons
+                    }
+                  }
+                );
+              } else {
+                await bot.sendMessage(
+                  chatId,
+                  caption,
+                  {
+                    reply_markup: {
+                      inline_keyboard:
+                        buttons
+                    }
+                  }
+                );
+              }
+
+              return;
+            }
+
+            /*
+             * Normal single-season page.
+             */
             const buttons = [];
 
             for (
@@ -2263,7 +2365,8 @@ bot.on(
               buttons.push([
                 {
                   text:
-                    `▶️ ${episode.label}`,
+                    `▶️ Episode ${episode.episode}`,
+
                   callback_data:
                     create(
                       "9jepisode",
@@ -2271,10 +2374,18 @@ bot.on(
                         title:
                           jr.cleanTitle ||
                           jr.title,
+
                         label:
-                          episode.label,
+                          `Episode ${episode.episode}`,
+
                         episode:
                           episode.episode,
+
+                        season:
+                          episode.season ||
+                          jr.season ||
+                          null,
+
                         sources:
                           episode.sources || []
                       }
@@ -3254,6 +3365,110 @@ bot.on(
         chatId,
         `📺 ${item.title}\n` +
         `Season ${item.season}\n\n` +
+        "Choose an episode:",
+        {
+          reply_markup: {
+            inline_keyboard:
+              buttons
+          }
+        }
+      );
+
+      return;
+    }
+
+    /*
+     * 9JAROCKS SEASON SELECTED
+     */
+    if (
+      data.startsWith(
+        "9jseason:"
+      )
+    ) {
+      const item =
+        get(
+          data,
+          "9jseason"
+        );
+
+      if (!item) {
+        await bot.answerCallbackQuery(
+          query.id,
+          {
+            text:
+              "This season selection expired."
+          }
+        );
+
+        return;
+      }
+
+      await bot.answerCallbackQuery(
+        query.id
+      );
+
+      const episodes =
+        Array.isArray(
+          item.episodes
+        )
+          ? item.episodes
+          : [];
+
+      const buttons = [];
+
+      for (
+        const episode
+        of episodes
+      ) {
+        buttons.push([
+          {
+            text:
+              `▶️ Episode ${episode.episode}`,
+
+            callback_data:
+              create(
+                "9jepisode",
+                {
+                  title:
+                    item.title,
+
+                  label:
+                    `Season ${item.season} Episode ${episode.episode}`,
+
+                  season:
+                    item.season,
+
+                  episode:
+                    episode.episode,
+
+                  sources:
+                    episode.sources || []
+                }
+              )
+          }
+        ]);
+      }
+
+      buttons.push([
+        {
+          text:
+            "🔎 Search Again",
+          callback_data:
+            "home:search"
+        },
+        {
+          text:
+            "🏠 Home",
+          callback_data:
+            "home:menu"
+        }
+      ]);
+
+      await bot.sendMessage(
+        chatId,
+        `📺 ${item.title}\n` +
+        `Season ${item.season}\n\n` +
+        `${episodes.length} episode(s) found.\n` +
         "Choose an episode:",
         {
           reply_markup: {
