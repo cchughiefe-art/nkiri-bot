@@ -2933,6 +2933,8 @@ bot.on(
                         episode.label,
                       downloadUrl:
                         episode.downloadUrl,
+                      referer:
+                        item.url,
                       direct:
                         episode.direct === true,
                       sourceType:
@@ -3172,6 +3174,8 @@ bot.on(
                       episode.label,
                     downloadUrl:
                       episode.downloadUrl,
+                    referer:
+                      item.url,
                     direct:
                       episode.direct === true,
                     sourceType:
@@ -3606,6 +3610,25 @@ bot.on(
           }
         }
 
+        /*
+         * LoadedFiles occasionally changes its timer page.
+         * Keep the episode usable by opening the original authorized
+         * download page when automatic resolution is unavailable.
+         */
+        if (!resolved?.directUrl) {
+          const fallback =
+            (item.sources || [])
+              .find(source => source?.url);
+
+          if (fallback) {
+            resolved = {
+              directUrl:
+                fallback.url,
+              external: true
+            };
+          }
+        }
+
         if (!resolved?.directUrl) {
           throw new Error(
             "No working episode source"
@@ -3784,6 +3807,20 @@ bot.on(
               "9JAROCKS MIRROR ERROR:",
               error.message
             );
+          }
+        }
+
+        if (!resolved?.directUrl) {
+          const fallback =
+            (item.sources || [])
+              .find(source => source?.url);
+
+          if (fallback) {
+            resolved = {
+              directUrl:
+                fallback.url,
+              external: true
+            };
           }
         }
 
@@ -4215,10 +4252,46 @@ bot.on(
         );
 
       try {
-        const resolved =
-          await resolveDownload(
-            item.downloadUrl
-          );
+        let resolved;
+
+        try {
+          resolved =
+            await resolveDownload(
+              item.downloadUrl,
+              {
+                referer:
+                  item.referer ||
+                  undefined,
+                timeoutMs: 25000
+              }
+            );
+        } catch (resolverError) {
+          /*
+           * Never leave DramaKey/DownloadWella users staring at a
+           * permanent loading message. If automatic generation is
+           * unavailable, expose the original authorized download page.
+           */
+          if (
+            /downloadwella\.com/i.test(
+              String(item.downloadUrl || "")
+            )
+          ) {
+            console.warn(
+              "DownloadWella automatic resolver fallback:",
+              resolverError.message
+            );
+
+            resolved = {
+              directUrl:
+                item.downloadUrl,
+              external: true,
+              sourceType:
+                "downloadwella-page"
+            };
+          } else {
+            throw resolverError;
+          }
+        }
 
         incrementStat(
           "downloads"
@@ -4420,7 +4493,12 @@ bot.on(
           await resolveDownload(
             movie.downloadUrls?.length
               ? movie.downloadUrls
-              : movie.downloadUrl
+              : movie.downloadUrl,
+            {
+              referer:
+                item.url,
+              timeoutMs: 25000
+            }
           );
 
         incrementStat(

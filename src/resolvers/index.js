@@ -73,7 +73,10 @@ function classifyDownload(url) {
   return "external";
 }
 
-async function resolveDownload(input) {
+async function resolveDownload(
+  input,
+  options = {}
+) {
   const urls = Array.isArray(input)
     ? input.filter(Boolean)
     : [input].filter(Boolean);
@@ -138,8 +141,14 @@ async function resolveDownload(input) {
   if (dw.length) {
     const result =
       dw.length > 1
-        ? await resolveWithFallback(dw)
-        : await resolveDownloadWella(dw[0]);
+        ? await resolveWithFallback(
+            dw,
+            options
+          )
+        : await resolveDownloadWella(
+            dw[0],
+            options
+          );
 
     return {
       ...result,

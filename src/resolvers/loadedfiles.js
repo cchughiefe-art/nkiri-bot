@@ -1,4 +1,11 @@
-const { fetch } = require("undici");
+const cheerio = require("cheerio");
+const { fetch, Agent } = require("undici");
+
+const dispatcher = new Agent({
+  connect: { timeout: 15000 },
+  headersTimeout: 25000,
+  bodyTimeout: 25000
+});
 
 const UA =
   "Mozilla/5.0 (Linux; Android 15) AppleWebKit/537.36 Chrome/140 Safari/537.36";
@@ -60,6 +67,11 @@ async function resolveLoadedFiles(
 
   let referer = "";
   let cookie = "";
+  const signal =
+    options.signal ||
+    AbortSignal.timeout(
+      Number(options.timeoutMs) || 25000
+    );
 
   for (
     let step = 1;
@@ -70,6 +82,7 @@ async function resolveLoadedFiles(
       await fetch(
         url,
         {
+          dispatcher,
           headers: {
             "user-agent":
               UA,
@@ -87,9 +100,19 @@ async function resolveLoadedFiles(
           },
 
           redirect:
-            "manual"
+            "manual",
+
+          signal
         }
       );
+
+    if (
+      response.status >= 400
+    ) {
+      throw new Error(
+        `LoadedFiles HTTP ${response.status} at step ${step}`
+      );
+    }
 
     cookie =
       cookieFromHeaders(
@@ -204,21 +227,49 @@ async function resolveLoadedFiles(
     const html =
       await response.text();
 
-    const match =
-      html.match(
-        /dlTimer\(\{\s*seconds:\s*\d+,\s*link:\s*'([^']+)'/i
-      );
+    const $ = cheerio.load(html);
 
-    if (!match) {
+    const candidates = [];
+
+    const patterns = [
+      /dlTimer\([\s\S]*?link\s*:\s*["']([^"']+)["']/i,
+      /(?:window\.)?location(?:\.href)?\s*=\s*["']([^"']+)["']/i,
+      /(?:downloadUrl|download_url|fileUrl|file_url|link)\s*[:=]\s*["']([^"']+)["']/i
+    ];
+
+    for (const pattern of patterns) {
+      const match = html.match(pattern);
+      if (match?.[1]) candidates.push(match[1]);
+    }
+
+    $("a[href]").each((_, element) => {
+      const anchor = $(element);
+      const href = anchor.attr("href");
+      const text = anchor.text().replace(/\s+/g, " ").trim();
+
+      if (
+        href &&
+        (/download|continue|get file|start/i.test(text) ||
+          /\.(mkv|mp4|avi|mov)(?:$|[?#])/i.test(href))
+      ) {
+        candidates.push(href);
+      }
+    });
+
+    const nextRaw =
+      candidates.find(Boolean);
+
+    if (!nextRaw) {
       throw new Error(
         `LoadedFiles resolver stopped at step ${step}: no next download link`
       );
     }
 
     const next =
-      decodeJsString(
-        match[1]
-      );
+      new URL(
+        decodeJsString(nextRaw),
+        url
+      ).href;
 
     if (
       !/^https?:\/\//i.test(

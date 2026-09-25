@@ -24,10 +24,10 @@ const sleep = ms =>
 async function request(url, options = {}) {
   let lastError;
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       console.log(
-        `DownloadWella request ${attempt}/3...`
+        `DownloadWella request ${attempt}/2...`
       );
 
       return await fetch(url, {
@@ -38,13 +38,17 @@ async function request(url, options = {}) {
     } catch (error) {
       lastError = error;
 
+      if (options.signal?.aborted) {
+        throw error;
+      }
+
       console.log(
         `Request ${attempt} failed:`,
         error.cause?.code || error.message
       );
 
-      if (attempt < 3) {
-        await sleep(attempt * 3000);
+      if (attempt < 2) {
+        await sleep(attempt * 1000);
       }
     }
   }
@@ -52,13 +56,39 @@ async function request(url, options = {}) {
   throw lastError;
 }
 
-async function resolveDownloadWella(url) {
+function cookieHeader(response) {
+  const values =
+    typeof response.headers.getSetCookie === "function"
+      ? response.headers.getSetCookie()
+      : [response.headers.get("set-cookie")].filter(Boolean);
+
+  return values
+    .map(value => String(value).split(";", 1)[0])
+    .filter(Boolean)
+    .join("; ");
+}
+
+async function resolveDownloadWella(
+  url,
+  options = {}
+) {
+  const signal =
+    options.signal ||
+    AbortSignal.timeout(
+      Number(options.timeoutMs) || 25000
+    );
+
+  const referer =
+    options.referer ||
+    "https://thenkiri.com/";
+
   const first = await request(url, {
     headers: {
       ...HEADERS,
-      referer: "https://thenkiri.com/"
+      referer
     },
-    redirect: "follow"
+    redirect: "follow",
+    signal
   });
 
   if (!first.ok) {
@@ -69,6 +99,7 @@ async function resolveDownloadWella(url) {
 
   const firstHtml = await first.text();
   const $ = cheerio.load(firstHtml);
+  const cookie = cookieHeader(first);
 
   const form = $("form").first();
 
@@ -105,11 +136,13 @@ async function resolveDownloadWella(url) {
       "content-type":
         "application/x-www-form-urlencoded",
       origin: new URL(first.url).origin,
-      referer: first.url
+      referer: first.url,
+      ...(cookie ? { cookie } : {})
     },
 
     body: params.toString(),
-    redirect: "follow"
+    redirect: "follow",
+    signal
   });
 
   if (!second.ok) {
@@ -159,7 +192,10 @@ async function resolveDownloadWella(url) {
 }
 
 
-async function resolveWithFallback(urls) {
+async function resolveWithFallback(
+  urls,
+  options = {}
+) {
   const candidates =
     [...new Set(
       (
@@ -192,7 +228,8 @@ async function resolveWithFallback(urls) {
     try {
       const resolved =
         await resolveDownloadWella(
-          url
+          url,
+          options
         );
 
       return {
