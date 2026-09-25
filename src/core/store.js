@@ -209,6 +209,83 @@ function trackUser(user = {}) {
   writeStore(data);
 }
 
+
+function getUser(userId) {
+  if (!userId) return null;
+  const data = readStore();
+  return data.users?.[String(userId)] || null;
+}
+
+function grantShareAccess(userId, dateKey) {
+  if (!userId) return false;
+
+  const data = readStore();
+  data.users ||= {};
+
+  const key = String(userId);
+  const user = data.users[key] || {
+    id: userId,
+    firstSeenAt: Date.now(),
+    lastSeenAt: Date.now(),
+    searches: 0,
+    downloads: 0,
+    reports: 0
+  };
+
+  user.shareAccessDate = String(dateKey || "");
+  user.shareCredits = 1;
+  user.lastSharedAt = Date.now();
+  user.lastSeenAt = Date.now();
+
+  data.users[key] = user;
+  writeStore(data);
+  return true;
+}
+
+function hasShareAccess(userId, dateKey, mode = "every") {
+  const normalized = String(mode || "every").toLowerCase();
+
+  if (["off", "none", "disabled", "false"].includes(normalized)) {
+    return true;
+  }
+
+  const user = getUser(userId);
+  if (!user) return false;
+
+  if (normalized === "daily") {
+    return user.shareAccessDate === String(dateKey || "");
+  }
+
+  return Number(user.shareCredits || 0) > 0;
+}
+
+function consumeShareAccess(userId, mode = "every") {
+  const normalized = String(mode || "every").toLowerCase();
+
+  if (
+    normalized === "daily" ||
+    ["off", "none", "disabled", "false"].includes(normalized)
+  ) {
+    return true;
+  }
+
+  const data = readStore();
+  const user = data.users?.[String(userId)];
+
+  if (!user || Number(user.shareCredits || 0) < 1) {
+    return false;
+  }
+
+  user.shareCredits = Math.max(
+    0,
+    Number(user.shareCredits || 0) - 1
+  );
+
+  user.lastSeenAt = Date.now();
+  writeStore(data);
+  return true;
+}
+
 function incrementUserStat(
   userId,
   name
@@ -387,6 +464,10 @@ module.exports = {
   reportBroken,
   saveReport,
   trackUser,
+  getUser,
+  grantShareAccess,
+  hasShareAccess,
+  consumeShareAccess,
   incrementUserStat,
   trackDownload,
   getAnalytics,
