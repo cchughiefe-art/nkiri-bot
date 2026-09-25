@@ -93,6 +93,11 @@ const {
 const token =
   process.env.TELEGRAM_BOT_TOKEN;
 
+const TELEGRAM_CHECK_TIMEOUT_MS = Math.max(
+  3000,
+  Number(process.env.TELEGRAM_CHECK_TIMEOUT_MS || 10000)
+);
+
 if (!token) {
   throw new Error(
     "TELEGRAM_BOT_TOKEN missing"
@@ -357,10 +362,22 @@ async function channelMember(
 
   try {
     const member =
-      await bot.getChatMember(
-        REQUIRED_CHANNEL,
-        userId
-      );
+      await Promise.race([
+        bot.getChatMember(
+          REQUIRED_CHANNEL,
+          userId
+        ),
+        new Promise((_, reject) =>
+          setTimeout(
+            () => reject(
+              new Error(
+                "Telegram membership check timed out"
+              )
+            ),
+            TELEGRAM_CHECK_TIMEOUT_MS
+          )
+        )
+      ]);
 
     return (
       member.status === "creator" ||

@@ -23,6 +23,10 @@ const BACKUP_ENABLED =
   String(process.env.BACKUP_ENABLED || "true").toLowerCase() !== "false";
 const ENV_MAINTENANCE =
   String(process.env.MAINTENANCE_MODE || "false").toLowerCase() === "true";
+const TELEGRAM_CHECK_TIMEOUT_MS = Math.max(
+  3000,
+  Number(process.env.TELEGRAM_CHECK_TIMEOUT_MS || 10000)
+);
 
 const DATA_DIR = process.env.DATA_DIR || path.join(process.cwd(), "data");
 const UX_FILE = path.join(DATA_DIR, "ux.json");
@@ -297,7 +301,15 @@ async function isChannelMember(bot, userId, state = null) {
   if (state) metric(state, "membershipChecks");
 
   try {
-    const member = await bot.getChatMember(REQUIRED_CHANNEL, userId);
+    const member = await Promise.race([
+      bot.getChatMember(REQUIRED_CHANNEL, userId),
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Telegram membership check timed out")),
+          TELEGRAM_CHECK_TIMEOUT_MS
+        )
+      )
+    ]);
     const ok =
       member.status === "creator" ||
       member.status === "administrator" ||
@@ -777,6 +789,9 @@ proto.on = function(event, listener) {
       }
 
       if (data.startsWith("episode:") || data.startsWith("download:")) {
+        // Stop Telegram's loading spinner before network checks.
+        await safeAnswer(bot, query.id);
+
         if (!user.device) {
           writeUx(state);
           await safeAnswer(bot, query.id, { text: "Choose your device first." });
