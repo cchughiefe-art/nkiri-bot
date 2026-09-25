@@ -50,6 +50,10 @@ const {
 } = require("./providers/9jarocks");
 
 const {
+  searchDramaKey
+} = require("./providers/dramakey");
+
+const {
   resolveLoadedFiles
 } = require("./resolvers/loadedfiles");
 
@@ -768,6 +772,53 @@ async function renderSearch(
   } catch (error) {
     console.error(
       "9JAROCKS SEARCH ERROR:",
+      error.message
+    );
+  }
+
+  /*
+   * DRAMAKEY SEARCH
+   *
+   * DramaKey title pages use DownloadWella links, so the normal
+   * Nkiri title, episode and download handlers can process them.
+   */
+  try {
+    const dramas =
+      await searchDramaKey(
+        query,
+        PAGE_SIZE
+      );
+
+    if (dramas.length) {
+      const seen =
+        new Set(
+          result.results.map(
+            item =>
+              `${item.provider || "thenkiri"}:${item.url}`
+          )
+        );
+
+      for (const item of dramas) {
+        const key =
+          `dramakey:${item.url}`;
+
+        if (!seen.has(key)) {
+          seen.add(key);
+          result.results.push(item);
+        }
+      }
+
+      result.total =
+        result.results.length;
+
+      result.pages = 1;
+      result.page = 1;
+      result.hasPrevious = false;
+      result.hasNext = false;
+    }
+  } catch (error) {
+    console.error(
+      "DRAMAKEY SEARCH ERROR:",
       error.message
     );
   }
